@@ -1,0 +1,150 @@
+"""Constants used throughout Looma."""
+
+import os
+from pathlib import Path
+
+# Version
+VERSION = "1.0.0"
+
+# Default configuration file
+DEFAULT_CONFIG_FILE = "looma.yml"
+
+# Platforms
+PLATFORM_WINDOWS = "windows"
+PLATFORM_MACOS = "macos"
+PLATFORM_LINUX = "linux"
+
+# Packaging engines
+ENGINE_PYINSTALLER = "pyinstaller"
+ENGINE_NUITKA = "nuitka"
+ENGINE_CXFREEZE = "cxfreeze"
+
+SUPPORTED_ENGINES = [ENGINE_PYINSTALLER, ENGINE_NUITKA, ENGINE_CXFREEZE]
+
+# Update strategies
+STRATEGY_PROMPT = "prompt"
+STRATEGY_SILENT = "silent"
+STRATEGY_FORCE = "force"
+
+# Update channels
+CHANNEL_STABLE = "stable"
+CHANNEL_BETA = "beta"
+CHANNEL_ALPHA = "alpha"
+CHANNEL_NIGHTLY = "nightly"
+
+# Source types
+SOURCE_GITHUB = "github"
+SOURCE_GITLAB = "gitlab"
+SOURCE_S3 = "s3"
+SOURCE_ARTIFACTORY = "artifactory"
+SOURCE_HTTP = "http"
+
+SUPPORTED_SOURCES = [SOURCE_GITHUB, SOURCE_GITLAB, SOURCE_S3, SOURCE_ARTIFACTORY, SOURCE_HTTP]
+
+# File names
+CONFIG_FILE = "looma.yml"
+VERSION_FILE = "versions.json"
+BACKUP_DIR = "backup"
+LOGS_DIR = "logs"
+
+# Timeouts (seconds)
+CONNECTION_TIMEOUT = 30
+READ_TIMEOUT = 60
+DOWNLOAD_TIMEOUT = 300
+
+# Sizes
+DOWNLOAD_CHUNK_SIZE = 8192  # 8KB
+MAX_DOWNLOAD_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
+DELTA_THRESHOLD = 5 * 1024 * 1024  # 5MB
+CACHE_SIZE = 100 * 1024 * 1024  # 100MB
+
+# Retry settings
+MAX_RETRY_ATTEMPTS = 3
+RETRY_DELAY = 5  # seconds
+RETRY_BACKOFF = 2  # exponential backoff factor
+
+# Cache settings
+CACHE_TTL = 300  # 5 minutes
+
+# Update intervals
+DEFAULT_CHECK_INTERVAL = 3600  # 1 hour
+MIN_CHECK_INTERVAL = 60  # 1 minute
+MAX_CHECK_INTERVAL = 86400  # 24 hours
+
+# Logging
+LOG_LEVEL_DEBUG = "DEBUG"
+LOG_LEVEL_INFO = "INFO"
+LOG_LEVEL_WARNING = "WARNING"
+LOG_LEVEL_ERROR = "ERROR"
+LOG_LEVEL_CRITICAL = "CRITICAL"
+
+DEFAULT_LOG_LEVEL = LOG_LEVEL_INFO
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+# Compression
+COMPRESSION_ZSTD = "zstd"
+COMPRESSION_LZMA = "lzma"
+COMPRESSION_BZIP2 = "bzip2"
+COMPRESSION_GZIP = "gzip"
+
+DEFAULT_COMPRESSION = COMPRESSION_ZSTD
+DEFAULT_COMPRESSION_LEVEL = 9
+
+# Signing
+SIGNING_ALGORITHM_ED25519 = "ed25519"
+SIGNING_ALGORITHM_RSA = "rsa"
+SIGNING_ALGORITHM_ECDSA = "ecdsa"
+
+DEFAULT_SIGNING_ALGORITHM = SIGNING_ALGORITHM_ED25519
+
+# Environment variables
+ENV_PREFIX = "LOOMA_"
+ENV_CONFIG_PATH = f"{ENV_PREFIX}CONFIG_PATH"
+ENV_UPDATE_CHANNEL = f"{ENV_PREFIX}UPDATE_CHANNEL"
+ENV_SOURCE_TOKEN = f"{ENV_PREFIX}SOURCE_TOKEN"
+ENV_LOG_LEVEL = f"{ENV_PREFIX}LOG_LEVEL"
+ENV_PROXY_HTTP = f"{ENV_PREFIX}HTTP_PROXY"
+ENV_PROXY_HTTPS = f"{ENV_PREFIX}HTTPS_PROXY"
+ENV_NO_PROXY = f"{ENV_PREFIX}NO_PROXY"
+
+# UI settings
+UI_WINDOW_WIDTH = 800
+UI_WINDOW_HEIGHT = 600
+UI_MIN_WIDTH = 600
+UI_MIN_HEIGHT = 400
+
+# Exit codes
+EXIT_SUCCESS = 0
+EXIT_FAILURE = 1
+EXIT_CONFIG_ERROR = 2
+EXIT_PACKAGING_ERROR = 3
+EXIT_UPDATE_ERROR = 4
+EXIT_SECURITY_ERROR = 5
+EXIT_NETWORK_ERROR = 6
+
+# File extensions
+EXT_WINDOWS_EXE = ".exe"
+EXT_WINDOWS_MSI = ".msi"
+EXT_WINDOWS_ZIP = ".zip"
+EXT_MACOS_DMG = ".dmg"
+EXT_MACOS_PKG = ".pkg"
+EXT_MACOS_APP = ".app"
+EXT_LINUX_APPIMAGE = ".AppImage"
+EXT_LINUX_DEB = ".deb"
+EXT_LINUX_RPM = ".rpm"
+EXT_LINUX_TAR_GZ = ".tar.gz"
+
+# MIME types
+MIME_JSON = "application/json"
+MIME_YAML = "application/x-yaml"
+MIME_OCTET_STREAM = "application/octet-stream"
+
+# HTTP headers
+HEADER_USER_AGENT = "User-Agent"
+HEADER_CONTENT_TYPE = "Content-Type"
+HEADER_ACCEPT = "Accept"
+HEADER_AUTHORIZATION = "Authorization"
+
+# Default user agent
+DEFAULT_USER_AGENT = f"Looma/{VERSION}"

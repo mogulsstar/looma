@@ -1,0 +1,541 @@
+# Looma Configuration Template
+# This is a comprehensive template with all available options
+# Copy this file to looma.yml and customize for your project
+
+# Configuration version (required)
+version: "1.0"
+
+# ============================================================================
+# APPLICATION METADATA
+# ============================================================================
+app:
+  # Application name (required)
+  name: "YourAppName"
+  
+  # Application version (required)
+  # Follow semantic versioning: MAJOR.MINOR.PATCH
+  version: "1.0.0"
+  
+  # Application description (optional)
+  description: "Your application description"
+  
+  # Author information (optional)
+  author: "Your Name"
+  
+  # Author email (optional)
+  email: "your.email@example.com"
+  
+  # License (optional)
+  license: "MIT"
+  
+  # Homepage URL (optional)
+  url: "https://your-app-website.com"
+  
+  # Copyright notice (optional)
+  copyright: "Copyright (c) 2025 Your Name"
+
+# ============================================================================
+# PACKAGING CONFIGURATION
+# ============================================================================
+packaging:
+  # Packaging engine (required)
+  # Options: pyinstaller, nuitka, cxfreeze
+  engine: "pyinstaller"
+  
+  # Application entry point (required)
+  # Path to your main Python file
+  entry_point: "main.py"
+  
+  # Create single file executable (optional, default: false)
+  one_file: true
+  
+  # Show console window (optional, default: true)
+  # Set to false for GUI applications on Windows
+  console: false
+  
+  # Application icon (optional)
+  # Path to .ico file (Windows) or .icns file (macOS)
+  icon: "assets/icon.ico"
+  
+  # Additional files to include (optional)
+  # These files will be bundled with your application
+  include_files:
+    - "config.json"
+    - "assets/"
+    - "data/"
+  
+  # Additional data files (optional)
+  # Format: source:destination
+  data_files:
+    - "templates:templates"
+    - "static:static"
+  
+  # Hidden imports (optional)
+  # Python modules that should be explicitly included
+  hidden_imports:
+    - "pkg_resources.py2_warn"
+    - "scipy.special._ufuncs_cxx"
+  
+  # Exclude modules (optional)
+  # Python modules to exclude from the bundle
+  exclude_modules:
+    - "matplotlib"
+    - "test"
+  
+  # UPX compression (optional, default: false)
+  # Note: May cause antivirus false positives
+  upx:
+    enabled: false
+    level: 7  # 1-9, higher = better compression
+  
+  # Python optimization level (optional)
+  # 0: no optimization, 1: remove assert and debug, 2: remove docstrings
+  optimize: 0
+  
+  # Bundle Python interpreter (optional, default: true)
+  bundle_python: true
+
+# ============================================================================
+# UPDATE CONFIGURATION
+# ============================================================================
+update:
+  # Update source configuration (required)
+  source:
+    # Source type (required)
+    # Options: github, gitlab, s3, artifactory, http
+    type: "github"
+    
+    # GitHub-specific settings
+    repo: "username/repository"  # GitHub repository
+    token: "${GITHUB_TOKEN}"     # Personal access token (use env var)
+    
+    # GitLab-specific settings
+    # project_id: "12345"
+    # token: "${GITLAB_TOKEN}"
+    
+    # S3-specific settings
+    # bucket: "my-updates-bucket"
+    # region: "us-east-1"
+    # access_key: "${AWS_ACCESS_KEY_ID}"
+    # secret_key: "${AWS_SECRET_ACCESS_KEY}"
+    
+    # Artifactory-specific settings
+    # url: "https://artifactory.company.com"
+    # repository: "my-repo"
+    # username: "${ARTIFACTORY_USER}"
+    # password: "${ARTIFACTORY_PASSWORD}"
+    
+    # HTTP/HTTPS source settings
+    # base_url: "https://updates.example.com"
+    # auth_header: "Bearer ${API_TOKEN}"
+  
+  # Update channel (optional, default: stable)
+  # Options: stable, beta, alpha, nightly, custom
+  channel: "stable"
+  
+  # Update check interval in seconds (optional, default: 3600)
+  # Set to 0 to disable automatic checks
+  check_interval: 3600
+  
+  # Update strategy (optional, default: prompt)
+  # Options:
+  #   prompt: Ask user before installing
+  #   silent: Download silently, prompt to install
+  #   force: Install automatically without prompting
+  strategy: "prompt"
+  
+  # Minimum version for updates (optional)
+  # Updates won't be applied if current version is below this
+  minimum_version: "0.9.0"
+  
+  # Maximum parallel downloads (optional, default: 3)
+  max_downloads: 3
+  
+  # Delta updates configuration (optional)
+  delta:
+    # Enable delta updates (optional, default: false)
+    enabled: true
+    
+    # File size threshold in bytes (optional, default: 5MB)
+    # Only use delta updates for files larger than this
+    threshold: 5242880
+    
+    # Compression algorithm (optional, default: bsdiff)
+    # Options: bsdiff, courgette, zstd
+    algorithm: "bsdiff"
+  
+  # Update UI configuration (optional)
+  ui:
+    # Show release notes (optional, default: true)
+    show_release_notes: true
+    
+    # Show download progress (optional, default: true)
+    show_progress: true
+    
+    # Allow skipping this version (optional, default: true)
+    allow_skip: true
+    
+    # Allow "remind me later" (optional, default: true)
+    allow_remind_later: true
+    
+    # Remind interval in seconds (optional, default: 86400)
+    remind_interval: 86400
+    
+    # Force update after N days (optional, default: 0 = never)
+    force_after_days: 0
+    
+    # Custom update window title (optional)
+    window_title: "Update Available"
+    
+    # Custom update message (optional)
+    # {version} will be replaced with new version number
+    message: "Version {version} is available. Would you like to update?"
+
+# ============================================================================
+# SECURITY CONFIGURATION
+# ============================================================================
+security:
+  # Code signing configuration
+  signing:
+    # Enable signing (optional, default: false)
+    enabled: true
+    
+    # Private key path (required if enabled)
+    # Keep this file secure and never commit to version control
+    private_key_path: "keys/private.key"
+    
+    # Public key (required if enabled)
+    # This will be embedded in the application
+    public_key: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
+      -----END PUBLIC KEY-----
+    
+    # Signing algorithm (optional, default: ed25519)
+    # Options: ed25519, rsa, ecdsa
+    algorithm: "ed25519"
+  
+  # Signature verification
+  verification:
+    # Strict mode (optional, default: true)
+    # If true, reject all unsigned packages
+    strict: true
+    
+    # List of trusted public keys (optional)
+    trusted_keys:
+      - "keys/trusted_public_1.key"
+      - "keys/trusted_public_2.key"
+    
+    # Allow self-signed certificates (optional, default: false)
+    allow_self_signed: false
+  
+  # SSL/TLS configuration
+  ssl:
+    # Verify SSL certificates (optional, default: true)
+    verify: true
+    
+    # Custom CA bundle path (optional)
+    # Leave empty to use system CA bundle
+    ca_bundle: null
+    
+    # Client certificate (optional)
+    client_cert: null
+    
+    # Client key (optional)
+    client_key: null
+  
+  # Encryption settings
+  encryption:
+    # Enable package encryption (optional, default: false)
+    enabled: false
+    
+    # Encryption algorithm (optional, default: aes256)
+    # Options: aes128, aes256, chacha20
+    algorithm: "aes256"
+    
+    # Encryption key (required if enabled)
+    # Use environment variable for security
+    key: "${ENCRYPTION_KEY}"
+
+# ============================================================================
+# PLATFORM-SPECIFIC CONFIGURATION
+# ============================================================================
+platforms:
+  # Windows-specific settings
+  windows:
+    # Installer type (optional, default: nsis)
+    # Options: nsis, inno, msi, zip
+    installer: "nsis"
+    
+    # Code signing tool (optional)
+    sign_tool: "signtool.exe"
+    
+    # Certificate path or thumbprint (optional)
+    certificate: "${WINDOWS_CERT_PATH}"
+    
+    # Certificate password (optional)
+    cert_password: "${WINDOWS_CERT_PASSWORD}"
+    
+    # Timestamp server (optional)
+    timestamp_url: "http://timestamp.digicert.com"
+    
+    # Windows metadata
+    file_version: "1.0.0.0"
+    product_version: "1.0.0.0"
+    company_name: "Your Company"
+    file_description: "Your Application"
+    internal_name: "yourapp"
+    original_filename: "yourapp.exe"
+    
+    # UAC settings (optional)
+    uac_admin: false
+    uac_uiaccess: false
+  
+  # macOS-specific settings
+  macos:
+    # Bundle identifier (required for macOS)
+    bundle_id: "com.yourcompany.yourapp"
+    
+    # Application category (optional)
+    category: "public.app-category.utilities"
+    
+    # Code signing identity (optional)
+    sign_identity: "Developer ID Application: Your Name (TEAM_ID)"
+    
+    # Notarization (optional, default: false)
+    notarize: true
+    
+    # Apple ID for notarization (required if notarize is true)
+    apple_id: "${APPLE_ID}"
+    
+    # App-specific password (required if notarize is true)
+    apple_password: "${APPLE_APP_PASSWORD}"
+    
+    # Team ID (optional)
+    team_id: "${APPLE_TEAM_ID}"
+    
+    # Entitlements file (optional)
+    entitlements: "entitlements.plist"
+    
+    # Info.plist additions (optional)
+    info_plist:
+      LSMinimumSystemVersion: "10.15"
+      NSHighResolutionCapable: true
+      NSRequiresAquaSystemAppearance: false
+  
+  # Linux-specific settings
+  linux:
+    # Create desktop file (optional, default: true)
+    desktop_file: true
+    
+    # Create AppImage (optional, default: false)
+    app_image: true
+    
+    # Desktop file categories (optional)
+    categories: "Utility;Application;"
+    
+    # Desktop file keywords (optional)
+    keywords: "app;utility;"
+    
+    # MIME types (optional)
+    mime_types: "application/x-yourapp;"
+    
+    # Create Snap package (optional, default: false)
+    snap: false
+    
+    # Create Flatpak (optional, default: false)
+    flatpak: false
+    
+    # Create .deb package (optional, default: false)
+    deb: false
+    
+    # Create .rpm package (optional, default: false)
+    rpm: false
+
+# ============================================================================
+# BUILD CONFIGURATION
+# ============================================================================
+build:
+  # Output directory (optional, default: dist)
+  output_dir: "dist"
+  
+  # Build directory (optional, default: build)
+  build_dir: "build"
+  
+  # Clean before build (optional, default: true)
+  clean: true
+  
+  # Parallel builds (optional, default: false)
+  parallel: false
+  
+  # Number of parallel jobs (optional, default: CPU count)
+  jobs: 4
+  
+  # Compression settings
+  compression:
+    # Enable compression (optional, default: true)
+    enabled: true
+    
+    # Compression algorithm (optional, default: zstd)
+    # Options: zstd, lzma, bzip2, gzip
+    algorithm: "zstd"
+    
+    # Compression level (optional, default: 9)
+    # Range: 1-9 (higher = better compression, slower)
+    level: 9
+  
+  # Build hooks
+  hooks:
+    # Commands to run before build (optional)
+    pre_build:
+      - "python scripts/prepare.py"
+      - "npm run build"
+    
+    # Commands to run after build (optional)
+    post_build:
+      - "python scripts/sign.py"
+      - "python scripts/upload.py"
+    
+    # Commands to run on build error (optional)
+    on_error:
+      - "python scripts/cleanup.py"
+  
+  # Environment variables for build (optional)
+  env:
+    MY_BUILD_VAR: "value"
+    ANOTHER_VAR: "${ENV_VAR}"
+
+# ============================================================================
+# LOGGING CONFIGURATION
+# ============================================================================
+logging:
+  # Log level (optional, default: INFO)
+  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # Log file path (optional, default: looma.log)
+  file: "logs/looma.log"
+  
+  # Console output (optional, default: true)
+  console: true
+  
+  # Log format (optional)
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Date format (optional)
+  date_format: "%Y-%m-%d %H:%M:%S"
+  
+  # Log rotation
+  rotation:
+    # Enable rotation (optional, default: true)
+    enabled: true
+    
+    # Maximum file size in bytes (optional, default: 10MB)
+    max_size: 10485760
+    
+    # Number of backup files (optional, default: 5)
+    backup_count: 5
+    
+    # Rotation interval (optional)
+    # Options: daily, weekly, monthly
+    interval: "daily"
+
+# ============================================================================
+# ADVANCED OPTIONS
+# ============================================================================
+advanced:
+  # Proxy configuration
+  proxy:
+    # HTTP proxy (optional)
+    http: "${HTTP_PROXY}"
+    
+    # HTTPS proxy (optional)
+    https: "${HTTPS_PROXY}"
+    
+    # No proxy hosts (optional)
+    no_proxy: "localhost,127.0.0.1,*.local"
+  
+  # Timeout settings in seconds
+  timeouts:
+    # Connection timeout (optional, default: 30)
+    connection: 30
+    
+    # Read timeout (optional, default: 60)
+    read: 60
+    
+    # Download timeout (optional, default: 300)
+    download: 300
+  
+  # Retry configuration
+  retry:
+    # Maximum retry attempts (optional, default: 3)
+    max_attempts: 3
+    
+    # Initial delay in seconds (optional, default: 5)
+    delay: 5
+    
+    # Exponential backoff factor (optional, default: 2)
+    backoff: 2
+    
+    # Maximum delay in seconds (optional, default: 60)
+    max_delay: 60
+  
+  # Cache configuration
+  cache:
+    # Enable caching (optional, default: true)
+    enabled: true
+    
+    # Cache directory (optional)
+    directory: ".looma_cache"
+    
+    # Cache TTL in seconds (optional, default: 300)
+    ttl: 300
+    
+    # Maximum cache size in bytes (optional, default: 100MB)
+    max_size: 104857600
+  
+  # Telemetry configuration
+  telemetry:
+    # Enable telemetry (optional, default: false)
+    enabled: false
+    
+    # Telemetry endpoint (optional)
+    endpoint: "https://telemetry.looma.dev"
+    
+    # Anonymous ID (optional, auto-generated if not provided)
+    anonymous_id: null
+    
+    # Events to track (optional)
+    events:
+      - "update_check"
+      - "update_download"
+      - "update_install"
+      - "error"
+  
+  # Experimental features
+  experimental:
+    # Enable experimental features (optional, default: false)
+    enabled: false
+    
+    # P2P updates (optional, default: false)
+    p2p_updates: false
+    
+    # Blockchain verification (optional, default: false)
+    blockchain_verify: false
+    
+    # AI-powered error diagnosis (optional, default: false)
+    ai_diagnosis: false
+
+# ============================================================================
+# CUSTOM CONFIGURATION
+# ============================================================================
+# Add your own custom configuration sections here
+# These will be available in your application via the Looma API
+custom:
+  my_setting: "value"
+  my_list:
+    - "item1"
+    - "item2"
+  my_dict:
+    key1: "value1"
+    key2: "value2"

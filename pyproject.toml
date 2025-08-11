@@ -1,0 +1,155 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "looma"
+version = "1.0.0"
+description = "A comprehensive Python packaging and auto-update platform"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Looma Team", email = "support@looma.dev"},
+]
+keywords = ["packaging", "auto-update", "pyinstaller", "nuitka", "deployment"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: System :: Software Distribution",
+]
+
+dependencies = [
+    "click>=8.0.0",
+    "pyyaml>=6.0",
+    "httpx>=0.24.0",
+    "pynacl>=1.5.0",
+    "zstandard>=0.21.0",
+    "bsdiff4>=1.2.0",
+    "structlog>=23.0.0",
+    "jsonschema>=4.0.0",
+    "packaging>=23.0",
+    "rich>=13.0.0",
+    "platformdirs>=3.0.0",
+    "python-dotenv>=1.0.0",
+    "aiofiles>=23.0.0",
+    "cryptography>=41.0.0",
+    "watchdog>=3.0.0",
+    "pyinstaller>=5.0",
+]
+
+[project.optional-dependencies]
+gui = [
+    "wxPython>=4.2.0",
+]
+
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "tox>=4.0.0",
+    "pre-commit>=3.0.0",
+]
+
+packagers = [
+    "nuitka>=1.8",
+    "cx-freeze>=6.15",
+]
+
+s3 = [
+    "boto3>=1.28.0",
+]
+
+all = [
+    "wxPython>=4.2.0",
+    "nuitka>=1.8",
+    "cx-freeze>=6.15",
+    "boto3>=1.28.0",
+]
+
+[project.urls]
+Homepage = "https://looma.dev"
+Documentation = "https://docs.looma.dev"
+Repository = "https://github.com/looma/looma"
+Issues = "https://github.com/looma/looma/issues"
+
+[project.scripts]
+looma = "looma.cli.main:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/looma"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/examples",
+    "LICENSE",
+    "README.md",
+    "README_CN.md",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = ["E501", "B008", "B905"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+source = ["src/looma"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]

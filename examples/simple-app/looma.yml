@@ -1,0 +1,159 @@
+# Looma configuration for Simple App example
+version: "1.0"
+
+# Application metadata
+app:
+  name: "SimpleApp"
+  version: "1.0.0"
+  description: "A simple demonstration application with auto-update"
+  author: "Looma Team"
+  license: "MIT"
+
+# Packaging configuration
+packaging:
+  # Packaging engine: pyinstaller, nuitka, or cxfreeze
+  engine: "pyinstaller"
+  
+  # Entry point of your application
+  entry_point: "main.py"
+  
+  # Output settings
+  one_file: true          # Create single executable
+  console: false          # Hide console window (Windows)
+  
+  # Application icon
+  icon: "assets/icon.ico"  # Optional
+  
+  # Additional files to include
+  include_files:
+    - "version.json"
+    - "README.md"
+  
+  # Python packages to include
+  hidden_imports:
+    - "tkinter"
+    - "json"
+
+# Update configuration
+update:
+  # Update source configuration
+  source:
+    type: "github"              # github, gitlab, s3, artifactory
+    repo: "yourusername/simple-app"
+    token: "${GITHUB_TOKEN}"    # Use environment variable
+    
+  # Update channel
+  channel: "stable"             # stable, beta, alpha
+  
+  # Update check interval (seconds)
+  check_interval: 3600          # Check every hour
+  
+  # Update strategy
+  strategy: "prompt"            # prompt, silent, force
+  
+  # Delta updates configuration
+  delta:
+    enabled: true
+    threshold: 5242880          # 5MB - use delta for larger files
+  
+  # UI configuration
+  ui:
+    show_release_notes: true
+    allow_skip: true
+    allow_remind_later: true
+    remind_interval: 86400      # 24 hours
+
+# Security configuration
+security:
+  # Code signing
+  signing:
+    enabled: true
+    private_key_path: "keys/private.key"
+    public_key: |
+      -----BEGIN PUBLIC KEY-----
+      MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
+      -----END PUBLIC KEY-----
+  
+  # Signature verification
+  verification:
+    strict: true                # Reject unsigned packages
+    trusted_keys:
+      - "keys/trusted_public.key"
+  
+  # SSL/TLS configuration
+  ssl:
+    verify: true
+    ca_bundle: null            # Use system CA bundle
+
+# Platform-specific configuration
+platforms:
+  windows:
+    # Windows-specific settings
+    installer: "nsis"          # nsis or inno
+    sign_tool: "signtool.exe"
+    certificate: "${WINDOWS_CERT_PATH}"
+    
+  macos:
+    # macOS-specific settings
+    bundle_id: "com.example.simpleapp"
+    category: "public.app-category.utilities"
+    sign_identity: "Developer ID Application"
+    notarize: true
+    
+  linux:
+    # Linux-specific settings
+    desktop_file: true
+    app_image: true
+    categories: "Utility;Application;"
+
+# Build configuration
+build:
+  # Output directory
+  output_dir: "dist"
+  
+  # Clean before build
+  clean: true
+  
+  # Compression
+  compression:
+    enabled: true
+    algorithm: "zstd"          # zstd, lzma, bzip2
+    level: 9                   # 1-9 (higher = better compression)
+  
+  # Build hooks
+  hooks:
+    pre_build: []              # Commands to run before build
+    post_build: []             # Commands to run after build
+
+# Logging configuration
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # Log file location
+  file: "looma.log"
+  
+  # Log rotation
+  rotation:
+    max_size: 10485760         # 10MB
+    backup_count: 5
+
+# Advanced options
+advanced:
+  # Proxy configuration
+  proxy:
+    http: "${HTTP_PROXY}"
+    https: "${HTTPS_PROXY}"
+    no_proxy: "localhost,127.0.0.1"
+  
+  # Timeout settings (seconds)
+  timeouts:
+    connection: 30
+    read: 60
+    download: 300
+  
+  # Retry configuration
+  retry:
+    max_attempts: 3
+    delay: 5                   # Seconds between retries
+    backoff: 2                 # Exponential backoff factor
