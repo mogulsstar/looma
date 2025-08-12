@@ -1,6 +1,5 @@
 """ configuration wizard for Looma GUI with progress tracking and validation."""
 
-import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -13,7 +12,7 @@ from looma.core.constants import DEFAULT_CONFIG_FILE
 
 class ConfigWizard(wx.adv.Wizard):
     """
-     configuration wizard with progress tracking and validation.
+    configuration wizard with progress tracking and validation.
 
     Features:
     - Progress indicator showing current step
@@ -51,41 +50,41 @@ class ConfigWizard(wx.adv.Wizard):
         self.pages = []
         self.current_page_index = 0
 
-        # Create  pages with validation
+        # Create pages with validation (ordered to match YAML structure)
         self.file_selection_page = FileSelectionPage(self)
         self.welcome_page = WelcomePage(self)
+        self.advanced_page = AdvancedOptionsPage(self)  # Advanced first
         self.app_page = ApplicationPage(self)
         self.packaging_page = PackagingPage(self)
         self.pyinstaller_page = PyInstallerOptionsPage(self)
         self.nuitka_page = NuitkaOptionsPage(self)
         self.cxfreeze_page = CxFreezeOptionsPage(self)
-        self.source_page = SourcePage(self)
         self.security_page = SecurityPage(self)
-        self.advanced_page = AdvancedOptionsPage(self)
+        self.source_page = SourcePage(self)  # Update source after security
         self.summary_page = SummaryPage(self)
 
         # Store pages for progress tracking
         self.pages = [
             self.file_selection_page,
             self.welcome_page,
+            self.advanced_page,
             self.app_page,
             self.packaging_page,
             # Engine-specific pages will be dynamically linked
-            self.source_page,
             self.security_page,
-            self.advanced_page,
+            self.source_page,
             self.summary_page,
         ]
 
-        # Chain pages (basic flow, engine pages will be inserted dynamically)
+        # Chain pages to match YAML order
         wx.adv.WizardPageSimple.Chain(self.file_selection_page, self.welcome_page)
-        wx.adv.WizardPageSimple.Chain(self.welcome_page, self.app_page)
+        wx.adv.WizardPageSimple.Chain(self.welcome_page, self.advanced_page)
+        wx.adv.WizardPageSimple.Chain(self.advanced_page, self.app_page)
         wx.adv.WizardPageSimple.Chain(self.app_page, self.packaging_page)
         # Dynamic chaining for engine-specific pages
-        wx.adv.WizardPageSimple.Chain(self.packaging_page, self.source_page)
-        wx.adv.WizardPageSimple.Chain(self.source_page, self.security_page)
-        wx.adv.WizardPageSimple.Chain(self.security_page, self.advanced_page)
-        wx.adv.WizardPageSimple.Chain(self.advanced_page, self.summary_page)
+        wx.adv.WizardPageSimple.Chain(self.packaging_page, self.security_page)
+        wx.adv.WizardPageSimple.Chain(self.security_page, self.source_page)
+        wx.adv.WizardPageSimple.Chain(self.source_page, self.summary_page)
 
         # Set initial size
         self.SetPageSize((650, 500))
@@ -210,16 +209,16 @@ class ConfigWizard(wx.adv.Wizard):
             page.SetPrev(None)
             page.SetNext(None)
 
-        # Chain the appropriate engine page
+        # Chain the appropriate engine page (security comes after engine-specific pages)
         if engine == "pyinstaller":
             wx.adv.WizardPageSimple.Chain(self.packaging_page, self.pyinstaller_page)
-            wx.adv.WizardPageSimple.Chain(self.pyinstaller_page, self.source_page)
+            wx.adv.WizardPageSimple.Chain(self.pyinstaller_page, self.security_page)
         elif engine == "nuitka":
             wx.adv.WizardPageSimple.Chain(self.packaging_page, self.nuitka_page)
-            wx.adv.WizardPageSimple.Chain(self.nuitka_page, self.source_page)
+            wx.adv.WizardPageSimple.Chain(self.nuitka_page, self.security_page)
         elif engine == "cxfreeze":
             wx.adv.WizardPageSimple.Chain(self.packaging_page, self.cxfreeze_page)
-            wx.adv.WizardPageSimple.Chain(self.cxfreeze_page, self.source_page)
+            wx.adv.WizardPageSimple.Chain(self.cxfreeze_page, self.security_page)
 
     def on_page_changed(self, event):
         """Handle page changed event for progress update."""
@@ -421,7 +420,7 @@ class FileSelectionPage(WizardPageBase):
     """Page for selecting configuration file to create or edit."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Configuration File Selection", 1, 9)
+        super().__init__(parent, "Configuration File Selection", 1, 8)
 
         # Description
         desc = wx.StaticText(
@@ -527,18 +526,18 @@ class WelcomePage(WizardPageBase):
     """ welcome page with better introduction."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Welcome to Looma Configuration Wizard", 2, 9)
+        super().__init__(parent, "Welcome to Looma Configuration Wizard", 2, 8)
 
         # Welcome message
         welcome_text = wx.StaticText(
             self,
             label="This wizard will guide you through configuring your Looma packaging and auto-update settings.\n\n"
                   "The configuration process includes:\n"
+                  "• Advanced build and logging options\n"
                   "• Application information\n"
                   "• Packaging engine selection and customization\n"
-                  "• Update source configuration\n"
                   "• Security settings\n"
-                  "• Advanced options\n\n"
+                  "• Update source configuration\n\n"
                   "Required fields are marked with an asterisk (*).\n"
                   "You can go back to previous steps at any time."
         )
@@ -566,7 +565,7 @@ class ApplicationPage(WizardPageBase):
     """ application information page with validation."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Application Information", 3, 9)
+        super().__init__(parent, "Application Information", 4, 8)
 
         # Create input fields
         self.name_ctrl = self.add_required_field(
@@ -665,7 +664,7 @@ class PackagingPage(WizardPageBase):
     """ packaging configuration page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Packaging Configuration", 4, 9)
+        super().__init__(parent, "Packaging Configuration", 5, 8)
 
         # Engine selection
         engine_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -816,7 +815,7 @@ class PyInstallerOptionsPage(WizardPageBase):
     """PyInstaller-specific options page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "PyInstaller Options", 5, 9)
+        super().__init__(parent, "PyInstaller Options", 5, 8)
 
         # Hidden imports
         self.content_sizer.Add(
@@ -951,7 +950,7 @@ class NuitkaOptionsPage(WizardPageBase):
     """Nuitka-specific options page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Nuitka Options", 5, 9)
+        super().__init__(parent, "Nuitka Options", 5, 8)
 
         # Optimization level
         opt_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -1020,7 +1019,7 @@ class CxFreezeOptionsPage(WizardPageBase):
     """cx_Freeze-specific options page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "cx_Freeze Options", 5, 9)
+        super().__init__(parent, "cx_Freeze Options", 5, 8)
 
         # Build directory
         self.content_sizer.Add(wx.StaticText(self, label="Build Directory:"), 0, wx.ALL, 5)
@@ -1134,7 +1133,7 @@ class SourcePage(WizardPageBase):
     """ update source configuration page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Update Source Configuration", 6, 9)
+        super().__init__(parent, "Update Source Configuration", 7, 8)
 
         # Enable updates
         self.enable_check = wx.CheckBox(self, label="Enable automatic updates")
@@ -1516,7 +1515,7 @@ class SecurityPage(WizardPageBase):
     """ security configuration page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Security Configuration", 7, 9)
+        super().__init__(parent, "Security Configuration", 6, 8)
 
         # Signing
         signing_box = wx.StaticBox(self, label="Package Signing")
@@ -1661,7 +1660,7 @@ class AdvancedOptionsPage(WizardPageBase):
     """Advanced options configuration page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Advanced Options", 8, 9)
+        super().__init__(parent, "Advanced Options", 3, 8)
 
         # Build options
         build_box = wx.StaticBox(self, label="Build Options")
@@ -1748,7 +1747,7 @@ class SummaryPage(WizardPageBase):
     """ summary page showing all configuration."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Configuration Summary", 9, 9)
+        super().__init__(parent, "Configuration Summary", 8, 8)
 
         # Summary text
         self.summary_text = wx.TextCtrl(
@@ -1767,12 +1766,24 @@ class SummaryPage(WizardPageBase):
         """Update summary when page is shown."""
         super().update_progress()
 
-        # Generate summary
+        # Generate summary (in YAML order)
         summary = []
         config = self.wizard.config
 
         summary.append("CONFIGURATION SUMMARY")
         summary.append("=" * 50)
+        summary.append("")
+
+        # Advanced options (first in YAML)
+        advanced = config.get("advanced", {})
+        summary.append("ADVANCED OPTIONS:")
+        build = advanced.get("build", {})
+        summary.append(f"  Output Directory: {build.get('output_dir', 'dist')}")
+        summary.append(f"  Clean Build: {build.get('clean', True)}")
+        logging = advanced.get("logging", {})
+        summary.append(f"  Log Level: {logging.get('level', 'INFO')}")
+        if logging.get('file'):
+            summary.append(f"  Log File: {logging.get('file', '')}")
         summary.append("")
 
         # Application
@@ -1782,6 +1793,7 @@ class SummaryPage(WizardPageBase):
         summary.append(f"  Version: {app.get('version', 'Not set')}")
         summary.append(f"  Author: {app.get('author', 'Not set')}")
         summary.append(f"  Email: {app.get('email', 'Not set')}")
+        summary.append(f"  License: {app.get('license', 'MIT')}")
         summary.append("")
 
         # Packaging
@@ -1798,6 +1810,14 @@ class SummaryPage(WizardPageBase):
                 summary.append(f"  Hidden Imports: {len(pkg.get('hidden_imports', []))} modules")
             if pkg.get("additional_files"):
                 summary.append(f"  Additional Files: {len(pkg.get('additional_files', []))} items")
+        summary.append("")
+
+        # Security
+        security = config.get("security", {})
+        summary.append("SECURITY:")
+        summary.append(f"  Signing Enabled: {security.get('signing', {}).get('enabled', False)}")
+        summary.append(f"  Strict Verification: {security.get('verification', {}).get('strict', True)}")
+        summary.append(f"  SSL Verification: {security.get('ssl', {}).get('verify', True)}")
         summary.append("")
 
         # Update source
@@ -1818,14 +1838,6 @@ class SummaryPage(WizardPageBase):
 
             summary.append(f"  Channel: {update.get('channel', 'stable')}")
             summary.append(f"  Strategy: {update.get('strategy', 'prompt')}")
-        summary.append("")
-
-        # Security
-        security = config.get("security", {})
-        summary.append("SECURITY:")
-        summary.append(f"  Signing Enabled: {security.get('signing', {}).get('enabled', False)}")
-        summary.append(f"  Strict Verification: {security.get('verification', {}).get('strict', True)}")
-        summary.append(f"  SSL Verification: {security.get('ssl', {}).get('verify', True)}")
         summary.append("")
 
         # Set summary text

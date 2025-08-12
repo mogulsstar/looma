@@ -315,8 +315,10 @@ class ConfigEditor(wx.Panel):
         # Simple implementation - search for first key
         if path:
             search_text = f"{path[0]}:"
-            pos = self.editor.FindText(0, self.editor.GetTextLength(), search_text)
-            if pos >= 0:
+            result = self.editor.FindText(0, self.editor.GetTextLength(), search_text)
+            # FindText returns a tuple (start_pos, end_pos) or (-1, -1) if not found
+            if result[0] >= 0:
+                pos = result[0]
                 line = self.editor.LineFromPosition(pos)
                 self.editor.GotoLine(line)
                 self.editor.SetSelection(pos, pos + len(search_text))
