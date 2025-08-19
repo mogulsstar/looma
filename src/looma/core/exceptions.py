@@ -106,3 +106,50 @@ class TimeoutError(NetworkError):
     Raised when an operation exceeds the configured timeout.
     """
     pass
+
+
+class PluginError(LoomaError):
+    """
+    Plugin-related errors.
+    
+    Raised when there are issues with plugin loading, execution,
+    or management.
+    """
+    pass
+
+
+class UploadError(LoomaError):
+    """
+    Upload-related errors.
+    
+    Raised when there are issues with uploading files to
+    remote repositories or storage services.
+    """
+    pass
+
+
+class DownloadError(NetworkError):
+    """
+    Download-related errors.
+    
+    Raised when there are issues with downloading files.
+    """
+    pass
+
+
+class InstallationError(LoomaError):
+    """
+    Installation-related errors.
+    
+    Raised when there are issues with installing updates or packages.
+    """
+    pass
+
+
+class VerificationError(SecurityError):
+    """
+    Verification-related errors.
+    
+    Raised when signature or hash verification fails.
+    """
+    pass

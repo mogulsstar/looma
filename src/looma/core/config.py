@@ -15,7 +15,7 @@ from looma.core.utils import load_yaml, save_yaml
 class ConfigManager:
     """
     Manages Looma configuration with validation and environment variable support.
-    
+
     Attributes
     ----------
     config_path : Path
@@ -25,11 +25,11 @@ class ConfigManager:
     schema : dict
         JSON schema for validation
     """
-    
+
     def __init__(self, config_path: Optional[Path] = None):
         """
         Initialize the configuration manager.
-        
+
         Parameters
         ----------
         config_path : Optional[Path]
@@ -38,14 +38,14 @@ class ConfigManager:
         self.config_path = config_path or Path(CONFIG_FILE)
         self.config = {}
         self.schema = self._load_schema()
-        
+
         # Load environment variables
         load_dotenv()
-    
+
     def _load_schema(self) -> Dict[str, Any]:
         """
         Load the configuration schema.
-        
+
         Returns
         -------
         dict
@@ -249,51 +249,51 @@ class ConfigManager:
                 }
             }
         }
-    
+
     def load(self, path: Optional[Path] = None) -> Dict[str, Any]:
         """
         Load configuration from file or defaults.
-        
+
         Parameters
         ----------
         path : Optional[Path]
             Path to configuration file
-            
+
         Returns
         -------
         dict
             Loaded configuration
-            
+
         Raises
         ------
         ConfigurationError
             If configuration file cannot be loaded
         """
         config_path = path or self.config_path
-        
+
         if not config_path.exists():
             raise ConfigurationError(f"Configuration file not found: {config_path}")
-        
+
         try:
             self.config = load_yaml(config_path)
             self.config = self.merge_env_vars(self.config)
-            
+
             if not self.validate(self.config):
                 raise ValidationError("Configuration validation failed")
-            
+
             return self.config
         except Exception as e:
             raise ConfigurationError(f"Failed to load configuration: {e}")
-    
+
     def validate(self, config: Dict[str, Any]) -> bool:
         """
         Validate configuration against schema.
-        
+
         Parameters
         ----------
         config : dict
             Configuration to validate
-            
+
         Returns
         -------
         bool
@@ -304,16 +304,16 @@ class ConfigManager:
             return True
         except jsonschema.ValidationError:
             return False
-    
+
     def merge_env_vars(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Merge environment variables into configuration.
-        
+
         Parameters
         ----------
         config : dict
             Configuration dictionary
-            
+
         Returns
         -------
         dict
@@ -329,7 +329,7 @@ class ConfigManager:
                 return os.getenv(env_var, obj)
             else:
                 return obj
-        
+
         # Also check for Looma-specific environment variables
         env_overrides = {}
         for key, value in os.environ.items():
@@ -337,10 +337,10 @@ class ConfigManager:
                 # Convert LOOMA_UPDATE_CHANNEL to update.channel
                 config_key = key[len(ENV_PREFIX):].lower().replace("_", ".")
                 env_overrides[config_key] = value
-        
+
         # Apply environment variable substitutions
         config = replace_env_vars(config)
-        
+
         # Apply environment overrides
         for key_path, value in env_overrides.items():
             keys = key_path.split(".")
@@ -350,13 +350,13 @@ class ConfigManager:
                     current[key] = {}
                 current = current[key]
             current[keys[-1]] = value
-        
+
         return config
-    
+
     def save(self, config: Dict[str, Any], path: Path, format: str = "yaml") -> None:
         """
         Save configuration to file.
-        
+
         Parameters
         ----------
         config : dict
@@ -365,7 +365,7 @@ class ConfigManager:
             Path to save file
         format : str
             Output format (yaml, json, toml)
-            
+
         Raises
         ------
         ConfigurationError
@@ -374,26 +374,18 @@ class ConfigManager:
         try:
             if not self.validate(config):
                 raise ValidationError("Configuration validation failed")
-            
+
             if format == "yaml":
                 save_yaml(config, path)
-            elif format == "json":
-                import json
-                with open(path, "w") as f:
-                    json.dump(config, f, indent=2)
-            elif format == "toml":
-                import toml
-                with open(path, "w") as f:
-                    toml.dump(config, f)
             else:
                 raise ValueError(f"Unsupported format: {format}")
         except Exception as e:
             raise ConfigurationError(f"Failed to save configuration: {e}")
-    
+
     def get(self, key: str, default: Any = None, config_data: Optional[Dict[str, Any]] = None) -> Any:
         """
         Get a configuration value by key path.
-        
+
         Parameters
         ----------
         key : str
@@ -402,7 +394,7 @@ class ConfigManager:
             Default value if key not found
         config_data : Optional[Dict[str, Any]]
             Configuration data to use instead of self.config
-            
+
         Returns
         -------
         Any
@@ -410,19 +402,19 @@ class ConfigManager:
         """
         keys = key.split(".")
         current = config_data if config_data is not None else self.config
-        
+
         for k in keys:
             if isinstance(current, dict) and k in current:
                 current = current[k]
             else:
                 return default
-        
+
         return current
-    
+
     def set(self, key: str, value: Any) -> None:
         """
         Set a configuration value by key path.
-        
+
         Parameters
         ----------
         key : str
@@ -432,23 +424,23 @@ class ConfigManager:
         """
         keys = key.split(".")
         current = self.config
-        
+
         for k in keys[:-1]:
             if k not in current:
                 current[k] = {}
             current = current[k]
-        
+
         current[keys[-1]] = value
-    
+
     def get_platform_config(self, platform: str) -> Dict[str, Any]:
         """
         Get platform-specific configuration.
-        
+
         Parameters
         ----------
         platform : str
             Platform name (windows, macos, linux)
-            
+
         Returns
         -------
         dict

@@ -12,6 +12,7 @@ from looma.core.config import ConfigManager
 from looma.core.constants import UI_MIN_HEIGHT, UI_MIN_WIDTH, UI_WINDOW_HEIGHT, UI_WINDOW_WIDTH
 from looma.gui.editor import ConfigEditor
 from looma.gui.wizard import ConfigWizard
+from looma.gui.initial_dialog import InitialChoiceDialog
 
 # Custom events
 BuildEvent, EVT_BUILD = wx.lib.newevent.NewEvent()
@@ -58,16 +59,45 @@ class LoomaApp(wx.App):
         self.SetAppName("Looma")
         self.SetAppDisplayName("Looma Configuration Tool")
 
-        # Show wizard or main window
-        if self.wizard_mode:
+        # Show initial choice dialog if no config path specified
+        if not self.config_path and not self.wizard_mode:
+            dialog = InitialChoiceDialog()
+            result = dialog.ShowModal()
+
+            if result == wx.ID_OK:
+                choice, config_path = dialog.get_choice()
+
+                if choice == 'new':
+                    # Start wizard for new configuration with the selected path
+                    self.config_path = config_path
+                    dialog.Destroy()
+                    self.show_wizard(new_config=True)
+                elif choice == 'edit':
+                    # Open main window with selected configuration
+                    self.config_path = config_path
+                    dialog.Destroy()
+                    self.show_main_window()
+                else:
+                    dialog.Destroy()
+                    return False
+            else:
+                dialog.Destroy()
+                return False
+        elif self.wizard_mode:
             self.show_wizard()
         else:
             self.show_main_window()
 
         return True
 
-    def show_wizard(self):
-        """Show configuration wizard."""
+    def show_wizard(self, new_config=False):
+        """Show configuration wizard.
+
+        Parameters
+        ----------
+        new_config : bool
+            True if creating new configuration, False if editing existing
+        """
         wizard = ConfigWizard(None, self.config_path)
 
         if wizard.RunWizard(wizard.GetFirstPage()):
@@ -77,9 +107,13 @@ class LoomaApp(wx.App):
             if config_path:
                 # Open main window with new configuration
                 self.config_path = config_path
+                wizard.Destroy()
                 self.show_main_window()
-
-        wizard.Destroy()
+        else:
+            wizard.Destroy()
+            if new_config:
+                # If creating new config was cancelled, show initial dialog again
+                self.OnInit()
 
     def show_main_window(self):
         """Show main application window."""
@@ -273,6 +307,14 @@ class MainFrame(wx.Frame):
             "Validate configuration",
         )
 
+        # Add Edit Configuration button
+        edit_config_tool = toolbar.AddTool(
+            wx.ID_ANY,
+            "Edit Configuration",
+            wx.ArtProvider.GetBitmap(wx.ART_CDROM, wx.ART_TOOLBAR),
+            "Edit configuration with wizard",
+        )
+
         build_tool = toolbar.AddTool(
             wx.ID_ANY,
             "Build",
@@ -287,6 +329,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_TOOL, self.on_open, open_tool)
         self.Bind(wx.EVT_TOOL, self.on_save, save_tool)
         self.Bind(wx.EVT_TOOL, self.on_validate, validate_tool)
+        self.Bind(wx.EVT_TOOL, self.on_edit_with_wizard, edit_config_tool)
         self.Bind(wx.EVT_TOOL, self.on_build, build_tool)
 
     def _create_button_panel(self, parent):
@@ -307,17 +350,14 @@ class MainFrame(wx.Frame):
         sizer = wx.BoxSizer(wx.HORIZONTAL)
 
         # Add buttons
-        validate_btn = wx.Button(panel, label="Validate")
         save_btn = wx.Button(panel, label="Save")
         build_btn = wx.Button(panel, label="Build Package")
 
         # Bind events
-        validate_btn.Bind(wx.EVT_BUTTON, self.on_validate)
         save_btn.Bind(wx.EVT_BUTTON, self.on_save)
         build_btn.Bind(wx.EVT_BUTTON, self.on_build)
 
         # Add to sizer
-        sizer.Add(validate_btn, 0, wx.ALL, 5)
         sizer.Add(save_btn, 0, wx.ALL, 5)
         sizer.AddStretchSpacer()
         sizer.Add(build_btn, 0, wx.ALL, 5)
@@ -327,11 +367,74 @@ class MainFrame(wx.Frame):
 
     def on_new(self, event):
         """Handle new configuration."""
-        self.config = {}
-        self.config_editor.set_config(self.config)
-        self.config_path = Path("looma.yml")
-        self.SetTitle("Looma Configuration Tool - New Configuration")
-        self.SetStatusText("New configuration created")
+        # First ask where to save the new configuration
+        with wx.FileDialog(
+            self,
+            "Save New Configuration As",
+            wildcard="YAML files (*.yml;*.yaml)|*.yml;*.yaml|All files (*.*)|*.*",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+            defaultFile="looma.yml"
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+
+            new_path = Path(file_dialog.GetPath())
+            # Ensure .yml extension
+            if not new_path.suffix in ['.yml', '.yaml']:
+                new_path = new_path.with_suffix('.yml')
+
+        # Ask user if they want to use wizard or start blank
+        dialog = wx.MessageDialog(
+            self,
+            "Would you like to use the Configuration Wizard to create a new configuration?",
+            "New Configuration",
+            wx.YES_NO | wx.ICON_QUESTION
+        )
+
+        result = dialog.ShowModal()
+        dialog.Destroy()
+
+        if result == wx.ID_YES:
+            # Use wizard for new configuration
+            wizard = ConfigWizard(self, new_path, load_existing=False)
+
+            if wizard.RunWizard(wizard.GetFirstPage()):
+                # Wizard completed, load the new configuration
+                config_path = wizard.config_path
+                if config_path and config_path.exists():
+                    try:
+                        self.config_manager = ConfigManager(config_path)
+                        self.config = self.config_manager.load()
+                        self.config_path = config_path
+                        self.config_editor.set_config(self.config)
+                        self.SetTitle(f"Looma Configuration Tool - {config_path.name}")
+                        self.SetStatusText(f"New configuration created: {config_path}")
+                    except Exception as e:
+                        wx.MessageBox(
+                            f"Failed to load new configuration:\n{e}",
+                            "Error",
+                            wx.OK | wx.ICON_ERROR,
+                        )
+
+            wizard.Destroy()
+        else:
+            # Create blank configuration at the specified path
+            self.config = {}
+            self.config_path = new_path
+            self.config_manager = ConfigManager(self.config_path)
+
+            # Save the empty configuration
+            try:
+                self.config_manager.save(self.config, self.config_path)
+                self.config_editor.set_config(self.config)
+                self.SetTitle(f"Looma Configuration Tool - {self.config_path.name}")
+                self.SetStatusText(f"New blank configuration created: {self.config_path}")
+            except Exception as e:
+                wx.MessageBox(
+                    f"Failed to create new configuration:\n{e}",
+                    "Error",
+                    wx.OK | wx.ICON_ERROR,
+                )
 
     def on_open(self, event):
         """Handle open configuration."""
@@ -432,6 +535,39 @@ class MainFrame(wx.Frame):
 
     def on_wizard(self, event):
         """Handle configuration wizard."""
+        wizard = ConfigWizard(self, self.config_path, load_existing=True)
+
+        if wizard.RunWizard(wizard.GetFirstPage()):
+            # Wizard completed, reload configuration
+            config_path = wizard.config_path
+            if config_path and config_path.exists():
+                try:
+                    self.config_manager = ConfigManager(config_path)
+                    self.config = self.config_manager.load()
+                    self.config_path = config_path
+                    self.config_editor.set_config(self.config)
+                    self.SetTitle(f"Looma Configuration Tool - {config_path.name}")
+                    self.SetStatusText(f"Configuration updated via wizard")
+                except Exception as e:
+                    wx.MessageBox(
+                        f"Failed to load wizard configuration:\n{e}",
+                        "Error",
+                        wx.OK | wx.ICON_ERROR,
+                    )
+
+        wizard.Destroy()
+
+    def on_edit_with_wizard(self, event):
+        """Handle edit configuration with wizard button."""
+        # Save current config first if modified
+        try:
+            self.config = self.config_editor.get_config()
+            self.config_manager.save(self.config, self.config_path)
+        except Exception:
+            # Ignore save errors, user may want to fix in wizard
+            pass
+
+        # Open wizard with current configuration
         wizard = ConfigWizard(self, self.config_path, load_existing=True)
 
         if wizard.RunWizard(wizard.GetFirstPage()):

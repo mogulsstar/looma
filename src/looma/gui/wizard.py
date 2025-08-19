@@ -8,6 +8,8 @@ import wx.adv
 import wx.lib.agw.aui as aui
 from looma.core.config import ConfigManager
 from looma.core.constants import DEFAULT_CONFIG_FILE
+from looma.packager.factory import packager_factory
+from looma.gui.engine_option_dialog import EngineOptionsDialog
 
 
 class ConfigWizard(wx.adv.Wizard):
@@ -43,45 +45,51 @@ class ConfigWizard(wx.adv.Wizard):
 
         # Initialize configuration
         self.config_path = config_path or Path(DEFAULT_CONFIG_FILE)
-        self.config = self._initialize_config(load_existing)
-        self.is_editing = False
+
+        # Determine if we're editing an existing file
+        self.is_editing = load_existing and self.config_path.exists()
+
+        # Load configuration if editing, otherwise use defaults
+        if self.is_editing:
+            try:
+                config_manager = ConfigManager(self.config_path)
+                loaded_config = config_manager.load()
+                self.config = self._merge_configs(self._initialize_config(False), loaded_config)
+            except Exception:
+                # If loading fails, start with defaults
+                self.config = self._initialize_config(False)
+                self.is_editing = False
+        else:
+            self.config = self._initialize_config(False)
 
         # Track pages for progress
         self.pages = []
         self.current_page_index = 0
 
         # Create pages with validation (ordered to match YAML structure)
-        self.file_selection_page = FileSelectionPage(self)
         self.welcome_page = WelcomePage(self)
-        self.advanced_page = AdvancedOptionsPage(self)  # Advanced first
+        self.build_settings_page = BuildSettingsPage(self)  # Build settings first
         self.app_page = ApplicationPage(self)
         self.packaging_page = PackagingPage(self)
-        self.pyinstaller_page = PyInstallerOptionsPage(self)
-        self.nuitka_page = NuitkaOptionsPage(self)
-        self.cxfreeze_page = CxFreezeOptionsPage(self)
         self.security_page = SecurityPage(self)
         self.source_page = SourcePage(self)  # Update source after security
         self.summary_page = SummaryPage(self)
 
         # Store pages for progress tracking
         self.pages = [
-            self.file_selection_page,
             self.welcome_page,
-            self.advanced_page,
+            self.build_settings_page,
             self.app_page,
             self.packaging_page,
-            # Engine-specific pages will be dynamically linked
             self.security_page,
             self.source_page,
             self.summary_page,
         ]
 
-        # Chain pages to match YAML order
-        wx.adv.WizardPageSimple.Chain(self.file_selection_page, self.welcome_page)
-        wx.adv.WizardPageSimple.Chain(self.welcome_page, self.advanced_page)
-        wx.adv.WizardPageSimple.Chain(self.advanced_page, self.app_page)
+        # Chain pages to match YAML order (starting from Welcome page)
+        wx.adv.WizardPageSimple.Chain(self.welcome_page, self.build_settings_page)
+        wx.adv.WizardPageSimple.Chain(self.build_settings_page, self.app_page)
         wx.adv.WizardPageSimple.Chain(self.app_page, self.packaging_page)
-        # Dynamic chaining for engine-specific pages
         wx.adv.WizardPageSimple.Chain(self.packaging_page, self.security_page)
         wx.adv.WizardPageSimple.Chain(self.security_page, self.source_page)
         wx.adv.WizardPageSimple.Chain(self.source_page, self.summary_page)
@@ -101,7 +109,17 @@ class ConfigWizard(wx.adv.Wizard):
     def _initialize_config(self, load_existing: bool) -> Dict[str, Any]:
         """Initialize or load configuration."""
         default_config = {
-            "version": "1.0",
+            "build_settings": {
+                "build": {
+                    "output_dir": "dist",
+                    "build_dir": "build",
+                    "clean": True,
+                },
+                "logging": {
+                    "level": "INFO",
+                    "file": "",
+                },
+            },
             "app": {
                 "name": "",
                 "version": "1.0.0",
@@ -142,16 +160,7 @@ class ConfigWizard(wx.adv.Wizard):
                     "verify": True,
                 },
             },
-            "advanced": {
-                "build": {
-                    "output_dir": "dist",
-                    "clean": True,
-                },
-                "logging": {
-                    "level": "INFO",
-                    "file": "",
-                },
-            },
+            "version": "1.0",
         }
 
         if load_existing and self.config_path.exists():
@@ -183,7 +192,7 @@ class ConfigWizard(wx.adv.Wizard):
 
     def GetFirstPage(self):
         """Get first wizard page."""
-        return self.file_selection_page
+        return self.welcome_page
 
     def on_page_changing(self, event):
         """Handle page changing event for validation."""
@@ -195,30 +204,6 @@ class ConfigWizard(wx.adv.Wizard):
                     return
             if hasattr(page, 'save_data'):
                 page.save_data()
-
-        # Handle dynamic page flow for packaging engines
-        if event.GetPage() == self.packaging_page and event.GetDirection():
-            self._setup_engine_page_flow()
-
-    def _setup_engine_page_flow(self):
-        """Dynamically set up page flow based on selected engine."""
-        engine = self.config.get("packaging", {}).get("engine", "pyinstaller")
-
-        # Unchain all engine pages first
-        for page in [self.pyinstaller_page, self.nuitka_page, self.cxfreeze_page]:
-            page.SetPrev(None)
-            page.SetNext(None)
-
-        # Chain the appropriate engine page (security comes after engine-specific pages)
-        if engine == "pyinstaller":
-            wx.adv.WizardPageSimple.Chain(self.packaging_page, self.pyinstaller_page)
-            wx.adv.WizardPageSimple.Chain(self.pyinstaller_page, self.security_page)
-        elif engine == "nuitka":
-            wx.adv.WizardPageSimple.Chain(self.packaging_page, self.nuitka_page)
-            wx.adv.WizardPageSimple.Chain(self.nuitka_page, self.security_page)
-        elif engine == "cxfreeze":
-            wx.adv.WizardPageSimple.Chain(self.packaging_page, self.cxfreeze_page)
-            wx.adv.WizardPageSimple.Chain(self.cxfreeze_page, self.security_page)
 
     def on_page_changed(self, event):
         """Handle page changed event for progress update."""
@@ -265,7 +250,7 @@ class ConfigWizard(wx.adv.Wizard):
 class WizardPageBase(wx.adv.WizardPageSimple):
     """Base class for wizard pages with common functionality."""
 
-    def __init__(self, parent, title: str, step_number: int, total_steps: int):
+    def __init__(self, parent: ConfigWizard, title: str, step_number: int, total_steps: int):
         """
         Initialize wizard page base.
 
@@ -355,7 +340,8 @@ class WizardPageBase(wx.adv.WizardPageSimple):
 
         # Help icon if tooltip provided
         if tooltip:
-            help_btn = wx.Button(self, label="?", size=(20, 20))
+            help_btn = wx.Button(self, label=" ? ")
+            help_btn.SetMinSize((40, -1))  # Set minimum width, let height be automatic
             help_btn.SetToolTip(tooltip)
             field_sizer.Add(help_btn, 0, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 5)
 
@@ -387,7 +373,8 @@ class WizardPageBase(wx.adv.WizardPageSimple):
 
         # Help icon if tooltip provided
         if tooltip:
-            help_btn = wx.Button(self, label="?", size=(20, 20))
+            help_btn = wx.Button(self, label=" ? ")
+            help_btn.SetMinSize((40, -1))  # Set minimum width, let height be automatic
             help_btn.SetToolTip(tooltip)
             field_sizer.Add(help_btn, 0, wx.LEFT | wx.ALIGN_CENTER_VERTICAL, 5)
 
@@ -414,126 +401,23 @@ class WizardPageBase(wx.adv.WizardPageSimple):
         """Update progress indicator."""
         if hasattr(self, 'progress_bar'):
             self.progress_bar.SetValue(self.step_number)
-
-
-class FileSelectionPage(WizardPageBase):
-    """Page for selecting configuration file to create or edit."""
-
-    def __init__(self, parent):
-        super().__init__(parent, "Configuration File Selection", 1, 8)
-
-        # Description
-        desc = wx.StaticText(
-            self,
-            label="Choose whether to create a new configuration or edit an existing one."
-        )
-        desc.Wrap(600)
-        self.content_sizer.Add(desc, 0, wx.ALL, 10)
-
-        # Radio buttons for choice
-        self.new_radio = wx.RadioButton(self, label="Create new configuration", style=wx.RB_GROUP)
-        self.edit_radio = wx.RadioButton(self, label="Edit existing configuration")
-
-        self.content_sizer.Add(self.new_radio, 0, wx.ALL, 10)
-        self.content_sizer.Add(self.edit_radio, 0, wx.ALL, 10)
-
-        # File path input
-        path_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        path_sizer.Add(wx.StaticText(self, label="File path:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
-
-        self.path_ctrl = wx.TextCtrl(self, value=str(self.wizard.config_path))
-        path_sizer.Add(self.path_ctrl, 1, wx.EXPAND)
-
-        browse_btn = wx.Button(self, label="Browse...")
-        browse_btn.Bind(wx.EVT_BUTTON, self.on_browse)
-        path_sizer.Add(browse_btn, 0, wx.LEFT, 10)
-
-        self.content_sizer.Add(path_sizer, 0, wx.EXPAND | wx.ALL, 10)
-
-        # Status text
-        self.status_text = wx.StaticText(self, label="")
-        self.content_sizer.Add(self.status_text, 0, wx.ALL, 10)
-
-        # Bind events
-        self.new_radio.Bind(wx.EVT_RADIOBUTTON, self.on_radio_change)
-        self.edit_radio.Bind(wx.EVT_RADIOBUTTON, self.on_radio_change)
-        self.path_ctrl.Bind(wx.EVT_TEXT, self.on_path_change)
-
-        # Check initial state
-        self.check_file_status()
-
-    def on_radio_change(self, event):
-        """Handle radio button change."""
-        self.check_file_status()
-
-    def on_path_change(self, event):
-        """Handle path text change."""
-        self.check_file_status()
-
-    def check_file_status(self):
-        """Check and display file status."""
-        path = Path(self.path_ctrl.GetValue())
-
-        if path.exists():
-            self.status_text.SetLabel(f"✓ File exists: {path}")
-            self.status_text.SetForegroundColour(wx.Colour(0, 128, 0))
-            self.edit_radio.SetValue(True)
-        else:
-            self.status_text.SetLabel(f"File will be created: {path}")
-            self.status_text.SetForegroundColour(wx.Colour(128, 128, 0))
-            self.new_radio.SetValue(True)
-
-    def on_browse(self, event):
-        """Handle browse button click."""
-        if self.edit_radio.GetValue():
-            # Browse for existing file
-            with wx.FileDialog(
-                self,
-                "Select Configuration File",
-                wildcard="YAML files (*.yml;*.yaml)|*.yml;*.yaml|All files (*.*)|*.*",
-                style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
-            ) as dialog:
-                if dialog.ShowModal() == wx.ID_OK:
-                    self.path_ctrl.SetValue(dialog.GetPath())
-        else:
-            # Browse for new file location
-            with wx.FileDialog(
-                self,
-                "Save Configuration File",
-                wildcard="YAML files (*.yml;*.yaml)|*.yml;*.yaml",
-                defaultFile="looma.yml",
-                style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
-            ) as dialog:
-                if dialog.ShowModal() == wx.ID_OK:
-                    self.path_ctrl.SetValue(dialog.GetPath())
-
-    def save_data(self):
-        """Save selected file path."""
-        self.wizard.config_path = Path(self.path_ctrl.GetValue())
-
-        # Load existing config if editing
-        if self.edit_radio.GetValue() and self.wizard.config_path.exists():
-            try:
-                config_manager = ConfigManager(self.wizard.config_path)
-                loaded_config = config_manager.load()
-                self.wizard.config = self.wizard._merge_configs(self.wizard.config, loaded_config)
-                self.wizard.is_editing = True
-            except Exception:
-                pass
+        # Load existing values when page is shown
+        if hasattr(self, 'load_existing_values'):
+            self.load_existing_values()
 
 
 class WelcomePage(WizardPageBase):
     """ welcome page with better introduction."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Welcome to Looma Configuration Wizard", 2, 8)
+        super().__init__(parent, "Welcome to Looma Configuration Wizard", 1, 7)
 
         # Welcome message
         welcome_text = wx.StaticText(
             self,
             label="This wizard will guide you through configuring your Looma packaging and auto-update settings.\n\n"
                   "The configuration process includes:\n"
-                  "• Advanced build and logging options\n"
+                  "• Build settings and logging options\n"
                   "• Application information\n"
                   "• Packaging engine selection and customization\n"
                   "• Security settings\n"
@@ -544,28 +428,122 @@ class WelcomePage(WizardPageBase):
         welcome_text.Wrap(600)
         self.content_sizer.Add(welcome_text, 0, wx.ALL, 10)
 
-        # Mode indicator
-        if self.wizard.is_editing:
-            mode_text = wx.StaticText(
-                self,
-                label=f"Mode: Editing existing configuration\nFile: {self.wizard.config_path}"
-            )
-            mode_text.SetForegroundColour(wx.Colour(0, 0, 128))
-        else:
-            mode_text = wx.StaticText(
-                self,
-                label=f"Mode: Creating new configuration\nFile: {self.wizard.config_path}"
-            )
-            mode_text.SetForegroundColour(wx.Colour(0, 128, 0))
+        # Mode indicator - will be updated dynamically
+        self.mode_text = wx.StaticText(self, label="")
+        self.content_sizer.Add(self.mode_text, 0, wx.ALL, 10)
 
-        self.content_sizer.Add(mode_text, 0, wx.ALL, 10)
+    def update_progress(self):
+        """Update progress and mode indicator when page is shown."""
+        super().update_progress()
+
+        # Update mode indicator based on current wizard state
+        if self.wizard.is_editing:
+            self.mode_text.SetLabel(
+                f"Mode: Editing existing configuration\nFile: {self.wizard.config_path}"
+            )
+            self.mode_text.SetForegroundColour(wx.Colour(0, 0, 128))
+        else:
+            self.mode_text.SetLabel(
+                f"Mode: Creating new configuration\nFile: {self.wizard.config_path}"
+            )
+            self.mode_text.SetForegroundColour(wx.Colour(0, 128, 0))
+
+
+class BuildSettingsPage(WizardPageBase):
+    """Build settings configuration page."""
+
+    def __init__(self, parent):
+        super().__init__(parent, "Build Settings", 2, 7)
+
+        # Build options
+        build_box = wx.StaticBox(self, label="Build Options")
+        build_sizer = wx.StaticBoxSizer(build_box, wx.VERTICAL)
+
+        # Output directory
+        output_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        output_sizer.Add(wx.StaticText(self, label="Output Directory:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+
+        self.output_ctrl = wx.TextCtrl(self, value="dist")
+        output_sizer.Add(self.output_ctrl, 1)
+
+        build_sizer.Add(output_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        self.clean_check = wx.CheckBox(self, label="Clean output directory before build")
+        self.clean_check.SetValue(True)
+        build_sizer.Add(self.clean_check, 0, wx.ALL, 5)
+
+        self.content_sizer.Add(build_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Logging options
+        log_box = wx.StaticBox(self, label="Logging")
+        log_sizer = wx.StaticBoxSizer(log_box, wx.VERTICAL)
+
+        # Log level
+        level_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        level_sizer.Add(wx.StaticText(self, label="Log Level:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+
+        self.level_choice = wx.Choice(
+            self,
+            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        )
+        self.level_choice.SetSelection(1)  # INFO
+        level_sizer.Add(self.level_choice, 1)
+
+        log_sizer.Add(level_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Log file
+        file_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        file_sizer.Add(wx.StaticText(self, label="Log File:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+
+        self.logfile_ctrl = wx.TextCtrl(self)
+        self.logfile_ctrl.SetToolTip("Optional: Leave empty for console only")
+        file_sizer.Add(self.logfile_ctrl, 1)
+
+        log_sizer.Add(file_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        self.content_sizer.Add(log_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+    def load_existing_values(self):
+        """Load existing values if editing."""
+        if self.wizard.is_editing:
+            # Use structure with build_settings key
+            build_settings_config = self.wizard.config.get("build_settings", {})
+
+            build_config = build_settings_config.get("build", {})
+            log_config = build_settings_config.get("logging", {})
+
+            self.output_ctrl.SetValue(build_config.get("output_dir", "dist"))
+            self.clean_check.SetValue(build_config.get("clean", True))
+
+            level = log_config.get("level", "INFO")
+            levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+            if level in levels:
+                self.level_choice.SetSelection(levels.index(level))
+            self.logfile_ctrl.SetValue(log_config.get("file", ""))
+
+    def save_data(self):
+        """Save build settings."""
+        levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+        # Save under build_settings key
+        self.wizard.config["build_settings"] = {
+            "build": {
+                "output_dir": self.output_ctrl.GetValue().strip() or "dist",
+                "build_dir": "build",  # Default build directory
+                "clean": self.clean_check.GetValue(),
+            },
+            "logging": {
+                "level": levels[self.level_choice.GetSelection()],
+                "file": self.logfile_ctrl.GetValue().strip(),
+            }
+        }
 
 
 class ApplicationPage(WizardPageBase):
     """ application information page with validation."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Application Information", 4, 8)
+        super().__init__(parent, "Application Information", 3, 7)
 
         # Create input fields
         self.name_ctrl = self.add_required_field(
@@ -605,7 +583,8 @@ class ApplicationPage(WizardPageBase):
         )
         self.license_ctrl.SetSelection(0)
 
-        # Load existing values if editing
+    def load_existing_values(self):
+        """Load existing values if editing."""
         if self.wizard.is_editing:
             app_config = self.wizard.config.get("app", {})
             self.name_ctrl.SetValue(app_config.get("name", ""))
@@ -664,7 +643,7 @@ class PackagingPage(WizardPageBase):
     """ packaging configuration page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Packaging Configuration", 5, 8)
+        super().__init__(parent, "Packaging Configuration", 4, 7)
 
         # Engine selection
         engine_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -719,17 +698,19 @@ class PackagingPage(WizardPageBase):
 
         self.content_sizer.Add(icon_sizer, 0, wx.EXPAND | wx.ALL, 5)
 
-        # Note about engine-specific options
-        note_text = wx.StaticText(
-            self,
-            label="Note: Engine-specific options will be configured in the next step."
-        )
-        note_text.SetForegroundColour(wx.Colour(0, 0, 128))
-        note_font = wx.Font(9, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_ITALIC, wx.FONTWEIGHT_NORMAL)
-        note_text.SetFont(note_font)
-        self.content_sizer.Add(note_text, 0, wx.ALL | wx.TOP, 10)
+        # Separator line
+        self.content_sizer.Add(wx.StaticLine(self), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 10)
 
-        # Load existing values if editing
+        # Advanced Options button
+        advanced_btn = wx.Button(self, label="Advanced Engine Options...")
+        advanced_btn.Bind(wx.EVT_BUTTON, self.on_advanced_options)
+        self.content_sizer.Add(advanced_btn, 0, wx.ALIGN_CENTER | wx.ALL, 10)
+
+        # Store engine-specific advanced options
+        self.engine_advanced_options = {}
+
+    def load_existing_values(self):
+        """Load existing values if editing."""
         if self.wizard.is_editing:
             pkg_config = self.wizard.config.get("packaging", {})
 
@@ -737,15 +718,23 @@ class PackagingPage(WizardPageBase):
             engines = ["pyinstaller", "nuitka", "cxfreeze"]
             if engine in engines:
                 self.engine_choice.SetSelection(engines.index(engine))
+                self.update_engine_description()
 
             self.entry_ctrl.SetValue(pkg_config.get("entry_point", "main.py"))
             self.onefile_check.SetValue(pkg_config.get("one_file", True))
             self.console_check.SetValue(pkg_config.get("console", False))
             self.icon_ctrl.SetValue(pkg_config.get("icon", ""))
 
+            # Load engine-specific advanced options
+            engine_options_key = f"{engine}_options"
+            if engine_options_key in pkg_config:
+                self.engine_advanced_options = pkg_config[engine_options_key]
+
     def on_engine_change(self, event):
         """Handle engine selection change."""
         self.update_engine_description()
+        # Clear engine-specific advanced options when engine changes
+        self.engine_advanced_options = {}
 
     def update_engine_description(self):
         """Update engine description based on selection."""
@@ -799,23 +788,329 @@ class PackagingPage(WizardPageBase):
 
         return True
 
+    def on_advanced_options(self, event):
+        """Handle advanced engine options button click."""
+        engines = ["pyinstaller", "nuitka", "cxfreeze"]
+        engine = engines[self.engine_choice.GetSelection()]
+
+        dialog = EngineOptionsDialog(self, engine, self.engine_advanced_options)
+        if dialog.ShowModal() == wx.ID_OK:
+            self.engine_advanced_options = dialog.get_options()
+        dialog.Destroy()
+
     def save_data(self):
         """Save packaging data."""
         engines = ["pyinstaller", "nuitka", "cxfreeze"]
+        engine = engines[self.engine_choice.GetSelection()]
+
         self.wizard.config["packaging"] = {
-            "engine": engines[self.engine_choice.GetSelection()],
+            "engine": engine,
             "entry_point": self.entry_ctrl.GetValue().strip(),
             "one_file": self.onefile_check.GetValue(),
             "console": self.console_check.GetValue(),
             "icon": self.icon_ctrl.GetValue().strip(),
         }
 
+        # Save engine-specific advanced options if any
+        if self.engine_advanced_options:
+            engine_options_key = f"{engine}_options"
+            self.wizard.config["packaging"][engine_options_key] = self.engine_advanced_options
+
+
+class DynamicEngineOptionsPage(WizardPageBase):
+    """Dynamic engine-specific options page based on parameter schema."""
+
+    def __init__(self, parent):
+        super().__init__(parent, "Engine Options", 5, 8)
+        self.controls = {}  # Store control references by parameter name
+        self.engine = None
+        self.schema = {}
+
+    def setup_for_engine(self, engine: str):
+        """Set up the page for a specific engine."""
+        self.engine = engine
+
+        # Clear existing controls from content_sizer only
+        self.controls.clear()
+
+        # Clear the content sizer (this preserves the title and progress bar)
+        self.content_sizer.Clear(True)
+
+        # Update page title
+        engine_name = engine.replace("_", " ").title()
+        self.title = f"{engine_name} Options"
+
+        # Get parameter schema from the packager
+        try:
+            # Ensure the factory is initialized
+            if not packager_factory.packagers:
+                packager_factory._register_default_packagers()
+
+            # Get the packager class from the factory
+            packager_class = packager_factory.get_packager_class(engine)
+
+            # Create a minimal config for initialization
+            minimal_config = {
+                "packaging": {"entry_point": "main.py"},
+                "build": {"output_dir": "dist", "build_dir": "build"},
+                "app": {"name": "app", "version": "1.0.0"}
+            }
+            packager = packager_class(minimal_config)  # Temporary instance to get schema
+            self.schema = packager.get_parameters_schema()
+
+            # Create controls based on schema
+            self._create_controls_from_schema()
+
+        except ImportError as e:
+            error_label = wx.StaticText(self, label=f"Error: {engine} packager not installed. {str(e)}")
+            self.content_sizer.Add(error_label, 0, wx.ALL, 10)
+        except Exception as e:
+            import traceback
+            error_text = f"Error loading {engine} parameters:\n{str(e)}\n\nDetails:\n{traceback.format_exc()}"
+            error_ctrl = wx.TextCtrl(self, value=error_text, style=wx.TE_MULTILINE | wx.TE_READONLY)
+            error_ctrl.SetMinSize((600, 200))
+            self.content_sizer.Add(error_ctrl, 0, wx.ALL | wx.EXPAND, 10)
+
+        self.Layout()
+
+    def _create_controls_from_schema(self):
+        """Create UI controls based on parameter schema."""
+        # Group parameters by category if possible
+        basic_params = []
+        advanced_params = []
+
+        for param_name, param_info in self.schema.items():
+            # Skip certain base parameters that are handled elsewhere
+            if param_name in ["entry_point", "output_dir", "dist_dir"]:
+                continue
+
+            # Categorize parameters
+            if param_name in ["onefile", "onedir", "console", "windowed", "icon", "name"]:
+                basic_params.append((param_name, param_info))
+            else:
+                advanced_params.append((param_name, param_info))
+
+        # Create basic options section
+        if basic_params:
+            basic_box = wx.StaticBox(self, label="Basic Options")
+            basic_sizer = wx.StaticBoxSizer(basic_box, wx.VERTICAL)
+
+            for param_name, param_info in basic_params:
+                self._create_control(basic_sizer, param_name, param_info)
+
+            self.content_sizer.Add(basic_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Create advanced options section
+        if advanced_params:
+            adv_box = wx.StaticBox(self, label="Advanced Options")
+            adv_sizer = wx.StaticBoxSizer(adv_box, wx.VERTICAL)
+
+            # Create a scrolled panel for advanced options if there are many
+            if len(advanced_params) > 10:
+                scroll_panel = wx.ScrolledWindow(self, size=(-1, 300))
+                scroll_panel.SetScrollRate(0, 20)
+                scroll_sizer = wx.BoxSizer(wx.VERTICAL)
+
+                for param_name, param_info in advanced_params:
+                    self._create_control(scroll_sizer, param_name, param_info, scroll_panel)
+
+                scroll_panel.SetSizer(scroll_sizer)
+                adv_sizer.Add(scroll_panel, 1, wx.EXPAND | wx.ALL, 5)
+            else:
+                for param_name, param_info in advanced_params:
+                    self._create_control(adv_sizer, param_name, param_info)
+
+            self.content_sizer.Add(adv_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+    def _create_control(self, sizer, param_name, param_info, parent=None):
+        """Create a single control based on parameter type."""
+        if parent is None:
+            parent = self
+
+        param_type = param_info.get("type", "input")
+        description = param_info.get("description", param_name)
+        default = param_info.get("default", "")
+        required = param_info.get("required", False)
+
+        # Create label
+        label_text = self._format_label(param_name)
+        if required:
+            label_text += " *"
+
+        if param_type == "flag" or param_type == "boolean":
+            # Create checkbox for boolean/flag parameters
+            checkbox = wx.CheckBox(parent, label=label_text)
+            checkbox.SetToolTip(description)
+            if default:
+                checkbox.SetValue(bool(default))
+            self.controls[param_name] = checkbox
+            sizer.Add(checkbox, 0, wx.ALL, 5)
+
+        elif param_type == "list":
+            # Create list control with add/remove buttons
+            label = wx.StaticText(parent, label=label_text)
+            label.SetToolTip(description)
+            sizer.Add(label, 0, wx.ALL, 5)
+
+            list_box = wx.ListBox(parent, size=(-1, 80))
+            self.controls[param_name] = list_box
+            sizer.Add(list_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+
+            btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            add_btn = wx.Button(parent, label="Add...", size=(70, -1))
+            add_btn.Bind(wx.EVT_BUTTON, lambda e, pn=param_name: self._on_add_list_item(e, pn))
+            btn_sizer.Add(add_btn, 0, wx.RIGHT, 5)
+
+            remove_btn = wx.Button(parent, label="Remove", size=(70, -1))
+            remove_btn.Bind(wx.EVT_BUTTON, lambda e, pn=param_name: self._on_remove_list_item(e, pn))
+            btn_sizer.Add(remove_btn, 0)
+
+            sizer.Add(btn_sizer, 0, wx.LEFT | wx.BOTTOM, 10)
+
+        elif param_type == "choice":
+            # Create choice control for enumerated options
+            h_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            label = wx.StaticText(parent, label=label_text)
+            label.SetToolTip(description)
+            h_sizer.Add(label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+
+            choices = param_info.get("choices", [])
+            choice_ctrl = wx.Choice(parent, choices=choices)
+            if default in choices:
+                choice_ctrl.SetSelection(choices.index(default))
+            self.controls[param_name] = choice_ctrl
+            h_sizer.Add(choice_ctrl, 1)
+
+            sizer.Add(h_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        elif param_type == "path":
+            # Create text control with browse button for paths
+            label = wx.StaticText(parent, label=label_text)
+            label.SetToolTip(description)
+            sizer.Add(label, 0, wx.ALL, 5)
+
+            h_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            text_ctrl = wx.TextCtrl(parent, value=str(default))
+            self.controls[param_name] = text_ctrl
+            h_sizer.Add(text_ctrl, 1, wx.RIGHT, 5)
+
+            browse_btn = wx.Button(parent, label="Browse...", size=(80, -1))
+            browse_btn.Bind(wx.EVT_BUTTON, lambda e, tc=text_ctrl: self._on_browse_path(e, tc))
+            h_sizer.Add(browse_btn, 0)
+
+            sizer.Add(h_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        else:  # input, integer, string, or other text-based types
+            # Create text control
+            label = wx.StaticText(parent, label=label_text)
+            label.SetToolTip(description)
+            sizer.Add(label, 0, wx.ALL, 5)
+
+            text_ctrl = wx.TextCtrl(parent, value=str(default))
+            self.controls[param_name] = text_ctrl
+            sizer.Add(text_ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+    def _format_label(self, param_name: str) -> str:
+        """Format parameter name as a readable label."""
+        # Convert snake_case to Title Case
+        words = param_name.replace("_", " ").split()
+        return " ".join(word.capitalize() for word in words)
+
+    def _on_add_list_item(self, event, param_name):
+        """Handle adding item to list parameter."""
+        dialog = wx.TextEntryDialog(self, f"Enter value to add:", "Add Item")
+        if dialog.ShowModal() == wx.ID_OK:
+            value = dialog.GetValue().strip()
+            if value:
+                list_box = self.controls[param_name]
+                list_box.Append(value)
+        dialog.Destroy()
+
+    def _on_remove_list_item(self, event, param_name):
+        """Handle removing item from list parameter."""
+        list_box = self.controls[param_name]
+        selection = list_box.GetSelection()
+        if selection != wx.NOT_FOUND:
+            list_box.Delete(selection)
+
+    def _on_browse_path(self, event, text_ctrl):
+        """Handle browse button for path parameters."""
+        with wx.FileDialog(
+            self,
+            "Select File",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        ) as dialog:
+            if dialog.ShowModal() == wx.ID_OK:
+                text_ctrl.SetValue(dialog.GetPath())
+
+    def load_existing_values(self):
+        """Load existing values if editing."""
+        if self.wizard.is_editing and self.engine:
+            pkg_config = self.wizard.config.get("packaging", {})
+            engine_options = pkg_config.get(f"{self.engine}_options", {})
+
+            for param_name, control in self.controls.items():
+                if param_name in engine_options:
+                    value = engine_options[param_name]
+
+                    if isinstance(control, wx.CheckBox):
+                        control.SetValue(bool(value))
+                    elif isinstance(control, wx.Choice):
+                        choices = [control.GetString(i) for i in range(control.GetCount())]
+                        if value in choices:
+                            control.SetSelection(choices.index(value))
+                    elif isinstance(control, wx.ListBox):
+                        control.Clear()
+                        if isinstance(value, list):
+                            control.AppendItems(value)
+                    elif isinstance(control, wx.TextCtrl):
+                        control.SetValue(str(value))
+
+    def save_data(self):
+        """Save engine-specific options."""
+        if not self.engine:
+            return
+
+        options = {}
+
+        for param_name, control in self.controls.items():
+            param_info = self.schema.get(param_name, {})
+            param_type = param_info.get("type", "input")
+
+            if isinstance(control, wx.CheckBox):
+                options[param_name] = control.GetValue()
+            elif isinstance(control, wx.Choice):
+                selection = control.GetSelection()
+                if selection != wx.NOT_FOUND:
+                    options[param_name] = control.GetString(selection)
+            elif isinstance(control, wx.ListBox):
+                items = []
+                for i in range(control.GetCount()):
+                    items.append(control.GetString(i))
+                options[param_name] = items
+            elif isinstance(control, wx.TextCtrl):
+                value = control.GetValue().strip()
+                if value:
+                    # Convert to appropriate type
+                    if param_type == "integer":
+                        try:
+                            options[param_name] = int(value)
+                        except ValueError:
+                            options[param_name] = value
+                    else:
+                        options[param_name] = value
+
+        if "packaging" not in self.wizard.config:
+            self.wizard.config["packaging"] = {}
+
+        self.wizard.config["packaging"][f"{self.engine}_options"] = options
+
 
 class PyInstallerOptionsPage(WizardPageBase):
     """PyInstaller-specific options page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "PyInstaller Options", 5, 8)
+        super().__init__(parent, "PyInstaller Options", 6, 9)
 
         # Hidden imports
         self.content_sizer.Add(
@@ -872,7 +1167,8 @@ class PyInstallerOptionsPage(WizardPageBase):
         self.noupx_check = wx.CheckBox(self, label="Disable UPX even if available")
         self.content_sizer.Add(self.noupx_check, 0, wx.ALL, 5)
 
-        # Load existing values if editing
+    def load_existing_values(self):
+        """Load existing values if editing."""
         if self.wizard.is_editing:
             pkg_config = self.wizard.config.get("packaging", {})
 
@@ -880,6 +1176,8 @@ class PyInstallerOptionsPage(WizardPageBase):
             if isinstance(hidden, list):
                 self.hidden_imports_ctrl.SetValue(", ".join(hidden))
 
+            # Clear and reload files list
+            self.files_list.Clear()
             files = pkg_config.get("additional_files", [])
             if isinstance(files, list):
                 self.files_list.AppendItems(files)
@@ -887,6 +1185,11 @@ class PyInstallerOptionsPage(WizardPageBase):
             exclude = pkg_config.get("exclude_modules", [])
             if isinstance(exclude, list):
                 self.exclude_ctrl.SetValue(", ".join(exclude))
+
+            # Load checkbox values
+            self.upx_check.SetValue(pkg_config.get("use_upx", False))
+            self.strip_check.SetValue(pkg_config.get("strip", True))
+            self.noupx_check.SetValue(pkg_config.get("no_upx", False))
 
     def on_add_file(self, event):
         """Add file to include."""
@@ -950,7 +1253,7 @@ class NuitkaOptionsPage(WizardPageBase):
     """Nuitka-specific options page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Nuitka Options", 5, 8)
+        super().__init__(parent, "Nuitka Options", 6, 9)
 
         # Optimization level
         opt_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -989,11 +1292,23 @@ class NuitkaOptionsPage(WizardPageBase):
         self.file_version_ctrl = wx.TextCtrl(self)
         self.content_sizer.Add(self.file_version_ctrl, 0, wx.EXPAND | wx.ALL, 5)
 
-        # Load existing values if editing
+    def load_existing_values(self):
+        """Load existing values if editing."""
         if self.wizard.is_editing:
             pkg_config = self.wizard.config.get("packaging", {})
             nuitka_config = pkg_config.get("nuitka_options", {})
 
+            # Set optimization level
+            opt = nuitka_config.get("optimization", "")
+            if opt == "--optimize-size":
+                self.opt_choice.SetSelection(1)
+            elif opt == "--optimize-speed":
+                self.opt_choice.SetSelection(2)
+            else:
+                self.opt_choice.SetSelection(0)
+
+            self.follow_imports_check.SetValue(nuitka_config.get("follow_imports", True))
+            self.windows_console_check.SetValue(nuitka_config.get("windows_console", False))
             self.company_ctrl.SetValue(nuitka_config.get("company_name", ""))
             self.product_ctrl.SetValue(nuitka_config.get("product_name", ""))
             self.file_version_ctrl.SetValue(nuitka_config.get("file_version", ""))
@@ -1019,7 +1334,7 @@ class CxFreezeOptionsPage(WizardPageBase):
     """cx_Freeze-specific options page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "cx_Freeze Options", 5, 8)
+        super().__init__(parent, "cx_Freeze Options", 6, 9)
 
         # Build directory
         self.content_sizer.Add(wx.StaticText(self, label="Build Directory:"), 0, wx.ALL, 5)
@@ -1069,7 +1384,8 @@ class CxFreezeOptionsPage(WizardPageBase):
         self.optimize_check.SetValue(True)
         self.content_sizer.Add(self.optimize_check, 0, wx.ALL, 5)
 
-        # Load existing values if editing
+    def load_existing_values(self):
+        """Load existing values if editing."""
         if self.wizard.is_editing:
             pkg_config = self.wizard.config.get("packaging", {})
             cx_config = pkg_config.get("cxfreeze_options", {})
@@ -1083,6 +1399,15 @@ class CxFreezeOptionsPage(WizardPageBase):
             excludes = cx_config.get("excludes", [])
             if isinstance(excludes, list):
                 self.excludes_ctrl.SetValue(", ".join(excludes))
+
+            # Clear and reload include files list
+            self.include_files_list.Clear()
+            include_files = cx_config.get("include_files", [])
+            if isinstance(include_files, list):
+                self.include_files_list.AppendItems(include_files)
+
+            self.compress_check.SetValue(cx_config.get("compress", True))
+            self.optimize_check.SetValue(cx_config.get("optimize", True))
 
     def on_add_file(self, event):
         """Add file to include."""
@@ -1129,11 +1454,157 @@ class CxFreezeOptionsPage(WizardPageBase):
         }
 
 
+class SecurityPage(WizardPageBase):
+    """ security configuration page."""
+
+    def __init__(self, parent):
+        super().__init__(parent, "Security Configuration", 5, 7)
+
+        # Signing
+        signing_box = wx.StaticBox(self, label="Package Signing")
+        signing_sizer = wx.StaticBoxSizer(signing_box, wx.VERTICAL)
+
+        self.signing_check = wx.CheckBox(self, label="Enable package signing")
+        self.signing_check.Bind(wx.EVT_CHECKBOX, self.on_signing_change)
+        signing_sizer.Add(self.signing_check, 0, wx.ALL, 5)
+
+        # Private key path
+        key_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        key_sizer.Add(wx.StaticText(self, label="Private Key:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
+
+        self.key_ctrl = wx.TextCtrl(self)
+        key_sizer.Add(self.key_ctrl, 1)
+
+        browse_btn = wx.Button(self, label="Browse...")
+        browse_btn.Bind(wx.EVT_BUTTON, self.on_browse_key)
+        key_sizer.Add(browse_btn, 0, wx.LEFT, 5)
+
+        generate_btn = wx.Button(self, label="Generate...")
+        generate_btn.Bind(wx.EVT_BUTTON, self.on_generate_key)
+        key_sizer.Add(generate_btn, 0, wx.LEFT, 5)
+
+        signing_sizer.Add(key_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        self.content_sizer.Add(signing_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Verification
+        verify_box = wx.StaticBox(self, label="Signature Verification")
+        verify_sizer = wx.StaticBoxSizer(verify_box, wx.VERTICAL)
+
+        self.strict_check = wx.CheckBox(self, label="Strict verification mode")
+        self.strict_check.SetValue(True)
+        self.strict_check.SetToolTip("Reject packages without valid signatures")
+        verify_sizer.Add(self.strict_check, 0, wx.ALL, 5)
+
+        self.content_sizer.Add(verify_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # SSL/TLS
+        ssl_box = wx.StaticBox(self, label="SSL/TLS")
+        ssl_sizer = wx.StaticBoxSizer(ssl_box, wx.VERTICAL)
+
+        self.ssl_verify_check = wx.CheckBox(self, label="Verify SSL certificates")
+        self.ssl_verify_check.SetValue(True)
+        ssl_sizer.Add(self.ssl_verify_check, 0, wx.ALL, 5)
+
+        self.content_sizer.Add(ssl_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Disable signing controls initially
+        self.on_signing_change(None)
+
+    def load_existing_values(self):
+        """Load existing values if editing."""
+        if self.wizard.is_editing:
+            security_config = self.wizard.config.get("security", {})
+
+            signing_config = security_config.get("signing", {})
+            self.signing_check.SetValue(signing_config.get("enabled", False))
+            self.key_ctrl.SetValue(signing_config.get("private_key_path", ""))
+
+            verify_config = security_config.get("verification", {})
+            self.strict_check.SetValue(verify_config.get("strict", True))
+
+            ssl_config = security_config.get("ssl", {})
+            self.ssl_verify_check.SetValue(ssl_config.get("verify", True))
+
+            self.on_signing_change(None)
+
+    def on_signing_change(self, event):
+        """Handle signing checkbox change."""
+        enabled = self.signing_check.GetValue()
+        self.key_ctrl.Enable(enabled)
+        for child in self.GetChildren():
+            if isinstance(child, wx.Button) and child.GetLabel() in ["Browse...", "Generate..."]:
+                child.Enable(enabled)
+
+    def on_browse_key(self, event):
+        """Browse for private key file."""
+        with wx.FileDialog(
+            self,
+            "Select Private Key",
+            wildcard="Key files (*.key)|*.key|All files (*.*)|*.*",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        ) as dialog:
+            if dialog.ShowModal() == wx.ID_OK:
+                self.key_ctrl.SetValue(dialog.GetPath())
+
+    def on_generate_key(self, event):
+        """Generate new keypair."""
+        with wx.DirDialog(
+            self,
+            "Select Directory for Keys",
+            style=wx.DD_DEFAULT_STYLE,
+        ) as dialog:
+            if dialog.ShowModal() == wx.ID_OK:
+                key_dir = Path(dialog.GetPath())
+
+                try:
+                    from looma.security.signing import SigningManager
+
+                    signer = SigningManager({})
+                    private_key, public_key = signer.generate_keypair()
+
+                    private_path = key_dir / "private.key"
+                    public_path = key_dir / "public.key"
+
+                    private_path.write_text(private_key)
+                    public_path.write_text(public_key)
+
+                    self.key_ctrl.SetValue(str(private_path))
+
+                    wx.MessageBox(
+                        f"Keypair generated:\n\nPrivate: {private_path}\nPublic: {public_path}\n\n"
+                        "Keep the private key secure!",
+                        "Keys Generated",
+                        wx.OK | wx.ICON_INFORMATION
+                    )
+                except Exception as e:
+                    wx.MessageBox(
+                        f"Failed to generate keys: {e}",
+                        "Error",
+                        wx.OK | wx.ICON_ERROR
+                    )
+
+    def save_data(self):
+        """Save security data."""
+        self.wizard.config["security"] = {
+            "signing": {
+                "enabled": self.signing_check.GetValue(),
+                "private_key_path": self.key_ctrl.GetValue().strip() if self.signing_check.GetValue() else "",
+            },
+            "verification": {
+                "strict": self.strict_check.GetValue(),
+            },
+            "ssl": {
+                "verify": self.ssl_verify_check.GetValue(),
+            },
+        }
+
+
 class SourcePage(WizardPageBase):
     """ update source configuration page."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Update Source Configuration", 7, 8)
+        super().__init__(parent, "Update Source Configuration", 6, 7)
 
         # Enable updates
         self.enable_check = wx.CheckBox(self, label="Enable automatic updates")
@@ -1202,7 +1673,8 @@ class SourcePage(WizardPageBase):
         # Initialize source panel
         self.create_github_panel()
 
-        # Load existing values if editing
+    def load_existing_values(self):
+        """Load existing values if editing."""
         if self.wizard.is_editing:
             update_config = self.wizard.config.get("update", {})
             self.enable_check.SetValue(update_config.get("enabled", True))
@@ -1225,6 +1697,9 @@ class SourcePage(WizardPageBase):
 
             interval = update_config.get("check_interval", 86400)
             self.interval_ctrl.SetValue(interval // 3600)
+
+            # Trigger enable/disable state
+            self.on_enable_change(None)
 
     def on_enable_change(self, event):
         """Handle enable checkbox change."""
@@ -1317,6 +1792,14 @@ class SourcePage(WizardPageBase):
 
         self.source_sizer.Add(token_sizer, 0, wx.EXPAND | wx.ALL, 5)
 
+        # Load existing values
+        if self.wizard.is_editing:
+            source_config = self.wizard.config.get("update", {}).get("source", {})
+            if source_config.get("type") == "gitlab":
+                self.gitlab_project_ctrl.SetValue(str(source_config.get("project_id", "")))
+                self.gitlab_url_ctrl.SetValue(source_config.get("url", "https://gitlab.com"))
+                self.gitlab_token_ctrl.SetValue(source_config.get("token", ""))
+
     def create_s3_panel(self):
         """Create S3 configuration panel."""
         self.source_sizer.Clear(True)
@@ -1349,6 +1832,14 @@ class SourcePage(WizardPageBase):
 
         self.source_sizer.Add(prefix_sizer, 0, wx.EXPAND | wx.ALL, 5)
 
+        # Load existing values
+        if self.wizard.is_editing:
+            source_config = self.wizard.config.get("update", {}).get("source", {})
+            if source_config.get("type") == "s3":
+                self.s3_bucket_ctrl.SetValue(source_config.get("bucket", ""))
+                self.s3_region_ctrl.SetValue(source_config.get("region", "us-east-1"))
+                self.s3_prefix_ctrl.SetValue(source_config.get("prefix", ""))
+
     def create_artifactory_panel(self):
         """Create Artifactory configuration panel."""
         self.source_sizer.Clear(True)
@@ -1379,6 +1870,14 @@ class SourcePage(WizardPageBase):
         key_sizer.Add(self.artifactory_key_ctrl, 1)
 
         self.source_sizer.Add(key_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Load existing values
+        if self.wizard.is_editing:
+            source_config = self.wizard.config.get("update", {}).get("source", {})
+            if source_config.get("type") == "artifactory":
+                self.artifactory_url_ctrl.SetValue(source_config.get("url", ""))
+                self.artifactory_repo_ctrl.SetValue(source_config.get("repository", ""))
+                self.artifactory_key_ctrl.SetValue(source_config.get("api_key", ""))
 
     def create_http_panel(self):
         """Create HTTP configuration panel."""
@@ -1411,6 +1910,14 @@ class SourcePage(WizardPageBase):
         auth_sizer.Add(self.http_auth_ctrl, 1)
 
         self.source_sizer.Add(auth_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        # Load existing values
+        if self.wizard.is_editing:
+            source_config = self.wizard.config.get("update", {}).get("source", {})
+            if source_config.get("type") == "http":
+                self.http_url_ctrl.SetValue(source_config.get("base_url", ""))
+                self.http_endpoint_ctrl.SetValue(source_config.get("update_endpoint", "/updates"))
+                self.http_auth_ctrl.SetValue(source_config.get("auth_token", ""))
 
     def validate(self) -> bool:
         """Validate source configuration."""
@@ -1511,243 +2018,11 @@ class SourcePage(WizardPageBase):
         }
 
 
-class SecurityPage(WizardPageBase):
-    """ security configuration page."""
-
-    def __init__(self, parent):
-        super().__init__(parent, "Security Configuration", 6, 8)
-
-        # Signing
-        signing_box = wx.StaticBox(self, label="Package Signing")
-        signing_sizer = wx.StaticBoxSizer(signing_box, wx.VERTICAL)
-
-        self.signing_check = wx.CheckBox(self, label="Enable package signing")
-        self.signing_check.Bind(wx.EVT_CHECKBOX, self.on_signing_change)
-        signing_sizer.Add(self.signing_check, 0, wx.ALL, 5)
-
-        # Private key path
-        key_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        key_sizer.Add(wx.StaticText(self, label="Private Key:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
-
-        self.key_ctrl = wx.TextCtrl(self)
-        key_sizer.Add(self.key_ctrl, 1)
-
-        browse_btn = wx.Button(self, label="Browse...")
-        browse_btn.Bind(wx.EVT_BUTTON, self.on_browse_key)
-        key_sizer.Add(browse_btn, 0, wx.LEFT, 5)
-
-        generate_btn = wx.Button(self, label="Generate...")
-        generate_btn.Bind(wx.EVT_BUTTON, self.on_generate_key)
-        key_sizer.Add(generate_btn, 0, wx.LEFT, 5)
-
-        signing_sizer.Add(key_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        self.content_sizer.Add(signing_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        # Verification
-        verify_box = wx.StaticBox(self, label="Signature Verification")
-        verify_sizer = wx.StaticBoxSizer(verify_box, wx.VERTICAL)
-
-        self.strict_check = wx.CheckBox(self, label="Strict verification mode")
-        self.strict_check.SetValue(True)
-        self.strict_check.SetToolTip("Reject packages without valid signatures")
-        verify_sizer.Add(self.strict_check, 0, wx.ALL, 5)
-
-        self.content_sizer.Add(verify_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        # SSL/TLS
-        ssl_box = wx.StaticBox(self, label="SSL/TLS")
-        ssl_sizer = wx.StaticBoxSizer(ssl_box, wx.VERTICAL)
-
-        self.ssl_verify_check = wx.CheckBox(self, label="Verify SSL certificates")
-        self.ssl_verify_check.SetValue(True)
-        ssl_sizer.Add(self.ssl_verify_check, 0, wx.ALL, 5)
-
-        self.content_sizer.Add(ssl_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        # Disable signing controls initially
-        self.on_signing_change(None)
-
-        # Load existing values if editing
-        if self.wizard.is_editing:
-            security_config = self.wizard.config.get("security", {})
-
-            signing_config = security_config.get("signing", {})
-            self.signing_check.SetValue(signing_config.get("enabled", False))
-            self.key_ctrl.SetValue(signing_config.get("private_key_path", ""))
-
-            verify_config = security_config.get("verification", {})
-            self.strict_check.SetValue(verify_config.get("strict", True))
-
-            ssl_config = security_config.get("ssl", {})
-            self.ssl_verify_check.SetValue(ssl_config.get("verify", True))
-
-            self.on_signing_change(None)
-
-    def on_signing_change(self, event):
-        """Handle signing checkbox change."""
-        enabled = self.signing_check.GetValue()
-        self.key_ctrl.Enable(enabled)
-        for child in self.GetChildren():
-            if isinstance(child, wx.Button) and child.GetLabel() in ["Browse...", "Generate..."]:
-                child.Enable(enabled)
-
-    def on_browse_key(self, event):
-        """Browse for private key file."""
-        with wx.FileDialog(
-            self,
-            "Select Private Key",
-            wildcard="Key files (*.key)|*.key|All files (*.*)|*.*",
-            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
-        ) as dialog:
-            if dialog.ShowModal() == wx.ID_OK:
-                self.key_ctrl.SetValue(dialog.GetPath())
-
-    def on_generate_key(self, event):
-        """Generate new keypair."""
-        with wx.DirDialog(
-            self,
-            "Select Directory for Keys",
-            style=wx.DD_DEFAULT_STYLE,
-        ) as dialog:
-            if dialog.ShowModal() == wx.ID_OK:
-                key_dir = Path(dialog.GetPath())
-
-                try:
-                    from looma.security.signing import SigningManager
-
-                    signer = SigningManager({})
-                    private_key, public_key = signer.generate_keypair()
-
-                    private_path = key_dir / "private.key"
-                    public_path = key_dir / "public.key"
-
-                    private_path.write_text(private_key)
-                    public_path.write_text(public_key)
-
-                    self.key_ctrl.SetValue(str(private_path))
-
-                    wx.MessageBox(
-                        f"Keypair generated:\n\nPrivate: {private_path}\nPublic: {public_path}\n\n"
-                        "Keep the private key secure!",
-                        "Keys Generated",
-                        wx.OK | wx.ICON_INFORMATION
-                    )
-                except Exception as e:
-                    wx.MessageBox(
-                        f"Failed to generate keys: {e}",
-                        "Error",
-                        wx.OK | wx.ICON_ERROR
-                    )
-
-    def save_data(self):
-        """Save security data."""
-        self.wizard.config["security"] = {
-            "signing": {
-                "enabled": self.signing_check.GetValue(),
-                "private_key_path": self.key_ctrl.GetValue().strip() if self.signing_check.GetValue() else "",
-            },
-            "verification": {
-                "strict": self.strict_check.GetValue(),
-            },
-            "ssl": {
-                "verify": self.ssl_verify_check.GetValue(),
-            },
-        }
-
-
-class AdvancedOptionsPage(WizardPageBase):
-    """Advanced options configuration page."""
-
-    def __init__(self, parent):
-        super().__init__(parent, "Advanced Options", 3, 8)
-
-        # Build options
-        build_box = wx.StaticBox(self, label="Build Options")
-        build_sizer = wx.StaticBoxSizer(build_box, wx.VERTICAL)
-
-        # Output directory
-        output_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        output_sizer.Add(wx.StaticText(self, label="Output Directory:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
-
-        self.output_ctrl = wx.TextCtrl(self, value="dist")
-        output_sizer.Add(self.output_ctrl, 1)
-
-        build_sizer.Add(output_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        self.clean_check = wx.CheckBox(self, label="Clean output directory before build")
-        self.clean_check.SetValue(True)
-        build_sizer.Add(self.clean_check, 0, wx.ALL, 5)
-
-        self.content_sizer.Add(build_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        # Logging options
-        log_box = wx.StaticBox(self, label="Logging")
-        log_sizer = wx.StaticBoxSizer(log_box, wx.VERTICAL)
-
-        # Log level
-        level_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        level_sizer.Add(wx.StaticText(self, label="Log Level:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
-
-        self.level_choice = wx.Choice(
-            self,
-            choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-        )
-        self.level_choice.SetSelection(1)  # INFO
-        level_sizer.Add(self.level_choice, 1)
-
-        log_sizer.Add(level_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        # Log file
-        file_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        file_sizer.Add(wx.StaticText(self, label="Log File:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 10)
-
-        self.logfile_ctrl = wx.TextCtrl(self)
-        self.logfile_ctrl.SetToolTip("Optional: Leave empty for console only")
-        file_sizer.Add(self.logfile_ctrl, 1)
-
-        log_sizer.Add(file_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        self.content_sizer.Add(log_sizer, 0, wx.EXPAND | wx.ALL, 5)
-
-        # Load existing values if editing
-        if self.wizard.is_editing:
-            advanced_config = self.wizard.config.get("advanced", {})
-
-            build_config = advanced_config.get("build", {})
-            self.output_ctrl.SetValue(build_config.get("output_dir", "dist"))
-            self.clean_check.SetValue(build_config.get("clean", True))
-
-            log_config = advanced_config.get("logging", {})
-            level = log_config.get("level", "INFO")
-            levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-            if level in levels:
-                self.level_choice.SetSelection(levels.index(level))
-            self.logfile_ctrl.SetValue(log_config.get("file", ""))
-
-    def save_data(self):
-        """Save advanced options."""
-        levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-
-        if "advanced" not in self.wizard.config:
-            self.wizard.config["advanced"] = {}
-
-        self.wizard.config["advanced"]["build"] = {
-            "output_dir": self.output_ctrl.GetValue().strip() or "dist",
-            "clean": self.clean_check.GetValue(),
-        }
-
-        self.wizard.config["advanced"]["logging"] = {
-            "level": levels[self.level_choice.GetSelection()],
-            "file": self.logfile_ctrl.GetValue().strip(),
-        }
-
-
 class SummaryPage(WizardPageBase):
     """ summary page showing all configuration."""
 
     def __init__(self, parent):
-        super().__init__(parent, "Configuration Summary", 8, 8)
+        super().__init__(parent, "Configuration Summary", 7, 7)
 
         # Summary text
         self.summary_text = wx.TextCtrl(
@@ -1774,16 +2049,19 @@ class SummaryPage(WizardPageBase):
         summary.append("=" * 50)
         summary.append("")
 
-        # Advanced options (first in YAML)
-        advanced = config.get("advanced", {})
-        summary.append("ADVANCED OPTIONS:")
-        build = advanced.get("build", {})
-        summary.append(f"  Output Directory: {build.get('output_dir', 'dist')}")
-        summary.append(f"  Clean Build: {build.get('clean', True)}")
-        logging = advanced.get("logging", {})
-        summary.append(f"  Log Level: {logging.get('level', 'INFO')}")
-        if logging.get('file'):
-            summary.append(f"  Log File: {logging.get('file', '')}")
+        # Build settings (first in YAML)
+        # Support both old 'advanced' and new 'build_settings' keys for backward compatibility
+        build_settings_config = config.get("build_settings") or config.get("advanced", {})
+        build_config = build_settings_config.get("build", {})
+        log_config = build_settings_config.get("logging", {})
+
+        summary.append("BUILD SETTINGS:")
+        summary.append(f"  Output Directory: {build_config.get('output_dir', 'dist')}")
+        summary.append(f"  Build Directory: {build_config.get('build_dir', 'build')}")
+        summary.append(f"  Clean Build: {build_config.get('clean', True)}")
+        summary.append(f"  Log Level: {log_config.get('level', 'INFO')}")
+        if log_config.get('file'):
+            summary.append(f"  Log File: {log_config.get('file', '')}")
         summary.append("")
 
         # Application
@@ -1845,4 +2123,3 @@ class SummaryPage(WizardPageBase):
 
         # Set location text
         self.location_text.SetLabel(f"Configuration will be saved to: {self.wizard.config_path}")
-

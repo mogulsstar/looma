@@ -20,8 +20,7 @@ from rich.table import Table
 
 from looma.core.config import ConfigManager
 from looma.core.constants import DEFAULT_CONFIG_FILE
-from looma.packager.factory import packager_factory
-from looma.sources.factory import source_factory
+from looma.plugins.manager import plugin_manager
 
 # Initialize console for rich output
 console = Console()
@@ -30,7 +29,7 @@ logger = structlog.get_logger()
 
 class Context:
     """CLI context for passing data between commands."""
-
+    
     def __init__(self):
         self.config_manager = ConfigManager()
         self.config = {}
@@ -68,55 +67,35 @@ pass_context = click.make_pass_decorator(Context, ensure=True)
 @pass_context
 def cli(ctx, config, verbose, quiet, output_format):
     """
-    Looma - Python Application Packaging and Auto-Update Platform
-
+    Looma V2 - Python Application Packaging and Auto-Update Platform
+    
     A comprehensive solution for packaging Python applications with
     multiple engines and built-in auto-update capabilities.
     """
     ctx.verbose = verbose
     ctx.quiet = quiet
     ctx.output_format = output_format
-
+    
     # Configure logging
-    import logging
-
-    if verbose:
-        log_level = logging.DEBUG
-    elif quiet:
-        log_level = logging.ERROR
-    else:
-        log_level = logging.INFO
-
-    logging.basicConfig(
-        level=log_level,
-        format="%(levelname)s: %(message)s"
-    )
-
+    log_level = "DEBUG" if verbose else "INFO"
+    if quiet:
+        log_level = "ERROR"
+    
     structlog.configure(
-        processors=[
-            structlog.stdlib.filter_by_level,
-            structlog.stdlib.add_logger_name,
-            structlog.stdlib.add_log_level,
-            structlog.stdlib.PositionalArgumentsFormatter(),
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.dev.ConsoleRenderer()
-        ],
-        context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=True,
+        wrapper_class=structlog.make_filtering_bound_logger(
+            getattr(structlog, log_level)
+        ),
     )
-
+    
     # Load configuration if specified
     if config:
         config_path = Path(config)
-
+        
         # Support environment-specific configs
         if not config_path.exists() and "{env}" in str(config):
             env = os.getenv("LOOMA_ENV", "dev")
             config_path = Path(str(config).replace("{env}", env))
-
+        
         if config_path.exists():
             try:
                 ctx.config = ctx.config_manager.load(config_path)
@@ -154,7 +133,7 @@ def init(ctx, template, output, wizard):
     else:
         # Create from template
         _create_config_from_template(template, output)
-
+        
         if not ctx.quiet:
             console.print(f"[green]✓[/green] Created configuration file: {output}")
             console.print("\nNext steps:")
@@ -175,38 +154,34 @@ def validate(ctx, schema):
     if not ctx.config:
         console.print("[red]✗[/red] No configuration loaded")
         sys.exit(1)
-
+    
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
         task = progress.add_task("Validating configuration...", total=None)
-
+        
         # Validate basic structure
         if ctx.config_manager.validate(ctx.config):
             progress.update(task, description="[green]✓[/green] Basic validation passed")
         else:
             progress.update(task, description="[red]✗[/red] Basic validation failed")
             sys.exit(1)
-
+        
         # Validate engine configuration if schema flag is set
         if schema:
             engine = ctx.config.get("build", {}).get("engine")
             if engine:
-                # Check if packager is available
-                if packager_factory.is_available(engine):
-                    packager = packager_factory.create(engine, ctx.config)
-                    schema = packager.get_parameters_schema()
-                    if schema:
-                        engine_options = ctx.config.get("build", {}).get("engine_options", {})
-                        # Basic validation: check if all provided options are in schema
-                        invalid_options = [opt for opt in engine_options if opt not in schema]
-                        if not invalid_options:
-                            progress.update(task, description=f"[green]✓[/green] {engine} configuration valid")
-                        else:
-                            progress.update(task, description=f"[red]✗[/red] {engine} has invalid options: {invalid_options}")
-                            sys.exit(1)
+                plugin_manager.initialize()
+                schema = plugin_manager.get_plugin_schema(engine)
+                if schema:
+                    engine_options = ctx.config.get("build", {}).get("engine_options", {})
+                    if plugin_manager.validate_plugin_config(engine, engine_options):
+                        progress.update(task, description=f"[green]✓[/green] {engine} configuration valid")
+                    else:
+                        progress.update(task, description=f"[red]✗[/red] {engine} configuration invalid")
+                        sys.exit(1)
 
 
 @cli.command()
@@ -241,68 +216,63 @@ def build(ctx, engine, platform, no_interactive, parallel, clean):
     if not ctx.config:
         console.print("[red]✗[/red] No configuration loaded")
         sys.exit(1)
-
+    
+    # Initialize plugin manager
+    plugin_manager.initialize()
+    
     # Determine engine
     build_engine = engine or ctx.config.get("build", {}).get("engine", "pyinstaller")
-
+    
     # Check if engine is available
-    if not packager_factory.is_available(build_engine):
+    if build_engine not in plugin_manager.get_engine_plugins():
         console.print(f"[red]✗[/red] Engine '{build_engine}' not available")
         console.print("\nAvailable engines:")
-        for eng in packager_factory.list_packagers():
-            if packager_factory.is_available(eng):
-                console.print(f"  - {eng}")
+        for eng in plugin_manager.get_engine_plugins():
+            console.print(f"  - {eng}")
         sys.exit(1)
-
-    # Get packager instance with normalized config
-    packager = packager_factory.create(
+    
+    # Get engine plugin
+    engine_plugin = plugin_manager.get_plugin(
         build_engine,
-        ctx.config
+        ctx.config.get("build", {})
     )
-
+    
     # Determine platforms
     if not platform or 'all' in platform:
         platforms = ['windows', 'macos', 'linux']
     else:
         platforms = list(platform)
-
+    
     # Filter to current platform if not cross-compiling
     current_platform = _get_current_platform()
     if current_platform in platforms:
         platforms = [current_platform]
         if not ctx.quiet:
             console.print(f"[yellow]![/yellow] Building for current platform only: {current_platform}")
-
+    
     # Build for each platform
     results = {}
     for plat in platforms:
         if not ctx.quiet:
             console.print(f"\n[cyan]Building for {plat}...[/cyan]")
-
+        
         # Merge platform-specific options
         build_config = ctx.config.get("build", {}).copy()
         platform_config = ctx.config.get("platforms", {}).get(plat, {})
         if platform_config.get("engine_options"):
             build_config["engine_options"].update(platform_config["engine_options"])
-
+        
         # Execute build
         try:
-            # Prepare the packager
-            app_path = Path(build_config.get("entry_point", "main.py"))
-            packager.prepare(app_path, build_config)
-
-            # Build the application
-            spec = packager.create_spec()
-            output_path = packager.build(spec)
-
-            result = {
-                "success": True,
-                "output": str(output_path),
-                "size": output_path.stat().st_size if output_path.exists() else 0
-            }
-
+            result = engine_plugin.execute({
+                "entry_point": build_config.get("entry_point", "main.py"),
+                "output_dir": build_config.get("output_dir", "dist"),
+                "options": build_config.get("engine_options", {}),
+                "platform": plat,
+            })
+            
             results[plat] = result
-
+            
             if not ctx.quiet:
                 if result.get("success"):
                     console.print(f"[green]✓[/green] Build successful for {plat}")
@@ -310,11 +280,11 @@ def build(ctx, engine, platform, no_interactive, parallel, clean):
                     console.print(f"  Size: {_format_size(result.get('size', 0))}")
                 else:
                     console.print(f"[red]✗[/red] Build failed for {plat}")
-
+                    
         except Exception as e:
             console.print(f"[red]✗[/red] Build failed for {plat}: {e}")
             results[plat] = {"success": False, "error": str(e)}
-
+    
     # Output results in requested format
     _output_results(ctx, results)
 
@@ -346,56 +316,62 @@ def upload(ctx, channel, target, draft, prerelease):
     if not ctx.config:
         console.print("[red]✗[/red] No configuration loaded")
         sys.exit(1)
-
+    
+    # Initialize plugin manager
+    plugin_manager.initialize()
+    
     # Get upload targets
     upload_config = ctx.config.get("upload", {})
     targets = upload_config.get("targets", [])
-
+    
     if target:
         # Filter to specified targets
         targets = [t for t in targets if t.get("name") in target]
-
+    
     if not targets:
         console.print("[red]✗[/red] No upload targets configured or specified")
         sys.exit(1)
-
+    
     # Upload to each target
     for target_config in targets:
         if not target_config.get("enabled", True):
             continue
-
+        
         target_type = target_config.get("type")
         target_name = target_config.get("name", target_type)
-
+        
         if not ctx.quiet:
             console.print(f"\n[cyan]Uploading to {target_name}...[/cyan]")
-
+        
         try:
-            # Get uploader from source factory
-            uploader = source_factory.create(
-                target_type,
+            # Get uploader plugin
+            uploader = plugin_manager.get_plugin(
+                f"{target_type}_uploader",
                 target_config.get("config", {})
             )
-
+            
             # Find files to upload
             dist_dir = Path(ctx.config.get("build", {}).get("output_dir", "dist"))
             files = list(dist_dir.glob("*"))
-
+            
             for file in files:
                 if file.is_file():
-                    # Upload the file
-                    metadata = {
-                        "channel": channel or "stable",
-                        "draft": draft,
-                        "prerelease": prerelease,
-                        "version": ctx.config.get("app", {}).get("version", "1.0.0"),
-                    }
-
-                    # Note: The actual upload method depends on the source implementation
-                    # This is a placeholder - actual sources need to implement upload functionality
+                    result = uploader.upload(
+                        str(file),
+                        {
+                            "channel": channel or "stable",
+                            "draft": draft,
+                            "prerelease": prerelease,
+                            "version": ctx.config.get("app", {}).get("version", "1.0.0"),
+                        }
+                    )
+                    
                     if not ctx.quiet:
-                        console.print(f"[yellow]![/yellow] Upload functionality not yet implemented for {target_type}")
-
+                        if result.get("success"):
+                            console.print(f"[green]✓[/green] Uploaded {file.name}")
+                        else:
+                            console.print(f"[red]✗[/red] Failed to upload {file.name}")
+                            
         except Exception as e:
             console.print(f"[red]✗[/red] Upload failed for {target_name}: {e}")
 
@@ -416,12 +392,15 @@ def gui(ctx, wizard, config):
     """Launch the GUI configuration tool."""
     try:
         # Import GUI module
-        from looma.gui.app import LoomaApp
-
+        from looma.gui.app import LoomaGUI
+        
         # Create and run GUI
-        app = LoomaApp(config_path=config, wizard_mode=wizard)
-        app.MainLoop()
-
+        app = LoomaGUI(
+            config_path=config,
+            wizard_mode=wizard
+        )
+        app.run()
+        
     except ImportError:
         console.print("[red]✗[/red] GUI dependencies not installed")
         console.print("\nInstall GUI support with:")
@@ -429,58 +408,78 @@ def gui(ctx, wizard, config):
         sys.exit(1)
 
 
-@cli.command(name='engines')
+@cli.group()
+def plugin():
+    """Manage Looma plugins."""
+    pass
+
+
+@plugin.command(name='list')
+@click.option(
+    '--type', '-t',
+    type=click.Choice(['engine', 'uploader', 'hook', 'all']),
+    default='all',
+    help='Filter by plugin type'
+)
 @pass_context
-def list_engines(ctx):
-    """List available packaging engines."""
+def plugin_list(ctx, type):
+    """List available plugins."""
+    plugin_manager.initialize()
+    
     # Create table
-    table = Table(title="Available Packaging Engines")
+    table = Table(title="Available Plugins")
     table.add_column("Name", style="cyan")
-    table.add_column("Status", style="green")
+    table.add_column("Type", style="green")
+    table.add_column("Version")
     table.add_column("Description")
-
-    engines = [
-        ("pyinstaller", "PyInstaller - Bundle Python applications"),
-        ("nuitka", "Nuitka - Python to C++ compiler"),
-        ("cxfreeze", "cx_Freeze - Cross-platform packaging"),
-    ]
-
-    for engine_name, description in engines:
-        if packager_factory.is_available(engine_name):
-            status = "[green]Installed[/green]"
-        else:
-            status = "[yellow]Not installed[/yellow]"
-
-        table.add_row(engine_name, status, description)
-
+    
+    # Get plugins
+    plugins = plugin_manager.list_plugins(
+        None if type == 'all' else type
+    )
+    
+    for plugin_info in plugins:
+        table.add_row(
+            plugin_info["name"],
+            plugin_info["type"],
+            plugin_info["version"],
+            plugin_info["description"]
+        )
+    
     console.print(table)
 
 
-@cli.command(name='schema')
-@click.argument('engine')
+@plugin.command(name='install')
+@click.argument('package')
+@pass_context
+def plugin_install(ctx, package):
+    """Install a plugin package."""
+    try:
+        plugin_manager.install_plugin(package)
+        console.print(f"[green]✓[/green] Installed plugin: {package}")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Failed to install plugin: {e}")
+        sys.exit(1)
+
+
+@plugin.command(name='schema')
+@click.argument('name')
 @click.option(
     '--output', '-o',
     type=click.Path(),
     help='Output schema to file'
 )
 @pass_context
-def get_schema(ctx, engine, output):
-    """Get engine configuration schema."""
-    if not packager_factory.is_available(engine):
-        console.print(f"[red]✗[/red] Engine '{engine}' not available")
-        sys.exit(1)
-
-    # Get packager and schema
-    packager = packager_factory.create(engine, {
-        "packaging": {"entry_point": "main.py"},
-        "build": {"output_dir": "dist", "build_dir": "build"}
-    })
-    schema = packager.get_parameters_schema()
-
+def plugin_schema(ctx, name, output):
+    """Get plugin configuration schema."""
+    plugin_manager.initialize()
+    
+    schema = plugin_manager.get_plugin_schema(name)
+    
     if not schema:
-        console.print(f"[red]✗[/red] No schema available for engine: {engine}")
+        console.print(f"[red]✗[/red] No schema available for plugin: {name}")
         sys.exit(1)
-
+    
     if output:
         with open(output, 'w') as f:
             json.dump(schema, f, indent=2)
@@ -504,31 +503,31 @@ def get_schema(ctx, engine, output):
 def check(ctx, force, channel):
     """Check for application updates."""
     from looma.client.updater import UpdateClient
-
+    
     if not ctx.config:
         console.print("[red]✗[/red] No configuration loaded")
         sys.exit(1)
-
+    
     update_config = ctx.config.get("update", {})
-
+    
     if not update_config.get("enabled", False):
         console.print("[yellow]![/yellow] Updates are disabled in configuration")
         sys.exit(0)
-
+    
     # Create update client
     client = UpdateClient(update_config)
-
+    
     # Check for updates
     with console.status("Checking for updates..."):
         update_info = client.check_update(
             force=force,
             channel=channel or update_config.get("current_channel", "stable")
         )
-
+    
     if update_info:
         console.print(f"[green]✓[/green] Update available: v{update_info.version}")
         console.print(f"\nRelease notes:\n{update_info.notes}")
-
+        
         if click.confirm("Do you want to update now?"):
             client.perform_update(update_info)
     else:
@@ -541,7 +540,7 @@ def _get_current_platform():
     """Get the current platform."""
     import platform
     system = platform.system().lower()
-
+    
     if system == "darwin":
         return "macos"
     elif system == "windows":
@@ -573,7 +572,7 @@ def _output_results(ctx, results):
 def _run_config_wizard(output_path):
     """Run interactive configuration wizard."""
     console.print("\n[bold cyan]Looma Configuration Wizard[/bold cyan]\n")
-
+    
     # Collect basic information
     config = {
         "version": "2.0",
@@ -581,65 +580,60 @@ def _run_config_wizard(output_path):
         "build": {},
         "update": {},
     }
-
+    
     # App information
     console.print("[bold]Application Information[/bold]")
     config["app"]["name"] = click.prompt("Application name", default="myapp")
     config["app"]["version"] = click.prompt("Version", default="1.0.0")
     config["app"]["description"] = click.prompt("Description", default="")
-
+    
     # Build configuration
     console.print("\n[bold]Build Configuration[/bold]")
-
+    
     # Show available engines
-    engines = packager_factory.list_packagers()
-    available_engines = [e for e in engines if packager_factory.is_available(e)]
-
-    if not available_engines:
-        console.print("[red]No packaging engines installed![/red]")
-        console.print("Install one with: pip install pyinstaller")
-        sys.exit(1)
-
+    plugin_manager.initialize()
+    engines = plugin_manager.get_engine_plugins()
+    
     console.print("Available packaging engines:")
-    for i, engine in enumerate(available_engines, 1):
+    for i, engine in enumerate(engines, 1):
         console.print(f"  {i}. {engine}")
-
+    
     engine_choice = click.prompt(
         "Select engine",
-        type=click.IntRange(1, len(available_engines)),
+        type=click.IntRange(1, len(engines)),
         default=1
     )
-    config["build"]["engine"] = available_engines[engine_choice - 1]
-
+    config["build"]["engine"] = engines[engine_choice - 1]
+    
     config["build"]["entry_point"] = click.prompt(
         "Entry point",
         default="main.py"
     )
-
+    
     # Update configuration
     console.print("\n[bold]Update Configuration[/bold]")
     config["update"]["enabled"] = click.confirm(
         "Enable auto-update?",
         default=True
     )
-
+    
     if config["update"]["enabled"]:
         strategies = ["prompt", "force", "silent"]
         console.print("Update strategies:")
         for i, strategy in enumerate(strategies, 1):
             console.print(f"  {i}. {strategy}")
-
+        
         strategy_choice = click.prompt(
             "Select strategy",
             type=click.IntRange(1, len(strategies)),
             default=1
         )
         config["update"]["strategy"] = strategies[strategy_choice - 1]
-
+    
     # Save configuration
     with open(output_path, 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
-
+    
     console.print(f"\n[green]✓[/green] Configuration saved to: {output_path}")
 
 
@@ -680,9 +674,9 @@ def _create_config_from_template(template, output_path):
             },
         },
     }
-
+    
     config = templates.get(template, templates["basic"])
-
+    
     with open(output_path, 'w') as f:
         yaml.dump(config, f, default_flow_style=False)
 

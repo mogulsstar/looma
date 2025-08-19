@@ -87,8 +87,13 @@ class ConfigEditor(wx.Panel):
         self.validate_btn = wx.Button(toolbar_panel, label="Validate")
         self.validate_btn.Bind(wx.EVT_BUTTON, self.on_validate)
 
+        self.edit_btn = wx.Button(toolbar_panel, label="Edit")
+        self.edit_btn.SetToolTip("Edit configuration with wizard")
+        self.edit_btn.Bind(wx.EVT_BUTTON, self.on_edit_wizard)
+
         toolbar_sizer.Add(self.format_btn, 0, wx.ALL, 2)
         toolbar_sizer.Add(self.validate_btn, 0, wx.ALL, 2)
+        toolbar_sizer.Add(self.edit_btn, 0, wx.ALL, 2)
         toolbar_sizer.AddStretchSpacer()
 
         toolbar_panel.SetSizer(toolbar_sizer)
@@ -312,16 +317,59 @@ class ConfigEditor(wx.Panel):
         path : list
             Path components
         """
-        # Simple implementation - search for first key
-        if path:
-            search_text = f"{path[0]}:"
-            result = self.editor.FindText(0, self.editor.GetTextLength(), search_text)
-            # FindText returns a tuple (start_pos, end_pos) or (-1, -1) if not found
-            if result[0] >= 0:
-                pos = result[0]
-                line = self.editor.LineFromPosition(pos)
-                self.editor.GotoLine(line)
-                self.editor.SetSelection(pos, pos + len(search_text))
+        if not path:
+            return
+
+        # For nested paths, we need to find the correct occurrence
+        # by checking the indentation level
+        text = self.editor.GetText()
+        lines = text.split('\n')
+
+        # Track current position in path
+        path_index = 0
+        current_indent = -1
+
+        for line_num, line in enumerate(lines):
+            if path_index >= len(path):
+                break
+
+            # Calculate indentation level
+            indent = len(line) - len(line.lstrip())
+
+            # Get the key from the line
+            stripped = line.lstrip()
+            if ':' in stripped:
+                key = stripped.split(':')[0]
+
+                # Check if this matches our current path component
+                if key == path[path_index]:
+                    # Check indentation constraints
+                    indent_ok = False
+                    if path_index == 0:
+                        # For root level (single path component), require indent 0
+                        if len(path) == 1:
+                            indent_ok = (indent == 0)
+                        else:
+                            # For first component of multi-level path, accept any indent
+                            indent_ok = True
+                    else:
+                        # For nested components, ensure proper nesting
+                        indent_ok = (indent > current_indent)
+                    
+                    if indent_ok:
+                        if path_index == len(path) - 1:
+                            # Found the target line
+                            pos = self.editor.PositionFromLine(line_num)
+                            self.editor.GotoLine(line_num)
+                            # Select the key
+                            key_start = pos + indent
+                            key_end = key_start + len(key) + 1  # Include the colon
+                            self.editor.SetSelection(key_start, key_end)
+                            return
+                        else:
+                            # Move to next path component
+                            current_indent = indent
+                            path_index += 1
 
     def on_text_change(self, event):
         """Handle text change in editor."""
@@ -377,6 +425,16 @@ class ConfigEditor(wx.Panel):
                 "Format Error",
                 wx.OK | wx.ICON_ERROR,
             )
+
+    def on_edit_wizard(self, event):
+        """Handle edit wizard button click."""
+        # Get the parent frame (MainFrame)
+        parent = self.GetParent()
+        while parent and not isinstance(parent, wx.Frame):
+            parent = parent.GetParent()
+
+        if parent and hasattr(parent, 'on_edit_with_wizard'):
+            parent.on_edit_with_wizard(event)
 
     def on_validate(self, event):
         """Handle validate button click."""

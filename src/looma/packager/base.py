@@ -1,13 +1,14 @@
 """Base packager interface for Looma."""
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from looma.core.exceptions import PackagingError
+from looma.core.plugin_base import PluginInterface
 
 
-class BasePackager(ABC):
+class BasePackager(PluginInterface):
     """
     Abstract base class for packaging engines.
     
@@ -263,3 +264,58 @@ class BasePackager(ABC):
         }
         
         return spec
+    
+    def get_parameters_schema(self) -> Dict[str, Any]:
+        """
+        Get parameter schema for this packager.
+        
+        Returns a dictionary describing available parameters, their types,
+        descriptions, and default values. This replaces external JSON schema files.
+        
+        Returns
+        -------
+        dict
+            Parameter schema with structure:
+            {
+                "parameter_name": {
+                    "type": "flag" | "input" | "list",
+                    "description": "Parameter description",
+                    "default": default_value,
+                    "required": bool,
+                    "choices": [list of valid choices] (optional)
+                }
+            }
+        """
+        # Base parameters common to all packagers
+        return {
+            "entry_point": {
+                "type": "input",
+                "description": "Main Python file to package",
+                "default": "main.py",
+                "required": True
+            },
+            "output_dir": {
+                "type": "input",
+                "description": "Directory for output files",
+                "default": "dist",
+                "required": False
+            },
+            "hidden_imports": {
+                "type": "list",
+                "description": "Additional modules to include (one per line)",
+                "default": [],
+                "required": False
+            },
+            "exclude_modules": {
+                "type": "list",
+                "description": "Modules to exclude from package (one per line)",
+                "default": [],
+                "required": False
+            },
+            "data_files": {
+                "type": "list",
+                "description": "Additional data files to include (one per line, format: source:dest)",
+                "default": [],
+                "required": False
+            }
+        }

@@ -96,6 +96,22 @@ class SourceFactory:
             List of source names
         """
         return list(self.sources.keys())
+    
+    def is_available(self, name: str) -> bool:
+        """
+        Check if a source is available.
+        
+        Parameters
+        ----------
+        name : str
+            Source name
+            
+        Returns
+        -------
+        bool
+            True if source is available
+        """
+        return name in self.sources
 
 
 # Global factory instance

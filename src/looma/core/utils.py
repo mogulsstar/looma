@@ -219,7 +219,7 @@ def save_yaml(data: Dict[str, Any], file_path: Union[str, Path]) -> None:
         Path to save file
     """
     with open(file_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True)
+        yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
 
 def compare_versions(v1: str, v2: str) -> int:
